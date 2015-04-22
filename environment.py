@@ -1,10 +1,24 @@
 __author__ = 'said'
 
-import threading
+from threading import *
 
-class Environment(threading.Thread):
+class Environment(Thread):
 
-    def
+    hasToStop = False
+    lock = Lock()
+
+    def mustStop(self):
+        ret = False
+        self.lock.acquire()
+        ret = self.hasToStop
+        self.lock.release()
+        return ret
+
+    def stop(self):
+        self.lock.acquire()
+        self.hasToStop = True
+        self.lock.release()
+
     def getStateLength(self):
         return None
 

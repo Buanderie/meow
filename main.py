@@ -14,6 +14,7 @@ def main():
     popo.start()
 
     time.sleep(3)
+    popo.stop()
 
 if __name__ == "__main__":
     main()
