@@ -39,6 +39,7 @@ class App
 		{
 			for( auto m : _modules )
 			{
+				std::cout << "stopping module: " << m.first << std::endl;
 				m.second->stop();
 			}
 		}
@@ -48,7 +49,11 @@ class App
 			for( auto r : recipients )
 			{
 				Module* m = _modules[r];
-				m->enqueueMessage( msg );
+                                // std::cout << r << " - " << std::hex << m << std::endl;
+                                if( m != 0 )
+                                {
+                                    m->enqueueMessage( msg );
+                                }
 			}	
 		}
 

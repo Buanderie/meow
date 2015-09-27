@@ -5,6 +5,8 @@
 #include <sstream>
 #include <unistd.h>
 #include <cmath>
+#include <iostream>
+#include <random>
 
 class HelloModule : public Module
 {
@@ -21,17 +23,13 @@ class HelloModule : public Module
 
 		void tick()
 		{
-			float number = 1.5;
-			for( size_t k = 0; k < 1000000; ++k )
-			{
-				number*=number;
-				number = pow(number, number);
-			}
+			std::random_device rd;
+                        std::mt19937 gen(rd());
+                        std::exponential_distribution<double> dis(3.5);
 			std::stringstream sstr;
-			sstr << "popo: " << rand();;
-			Message msg(sstr.str());
+			sstr << dis(gen);
+                        Message msg(sstr.str(),"ppppp");
 			emit( msg );
-			// std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 
 	private:

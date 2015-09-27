@@ -12,7 +12,10 @@ using namespace luabridge;
 
 void ScriptInterpreter::exposeModuleFunctions()
 {
-    // Define Lua exports
+
+    // std::function<bool(Message& msg, bool)> temp_receive = +[](Message& msg, bool isBlocking) -> bool { return this->_parentModule->receive(msg, isBlocking); };
+
+		// Define Lua exports
     getGlobalNamespace((lua_State*)L)
 
     .beginClass<Message>("Message")

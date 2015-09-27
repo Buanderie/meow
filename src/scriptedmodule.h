@@ -45,7 +45,10 @@ class ScriptedModule : public Module
                 Message scriptReceive( bool isBlocking=true )
                 {
                         Message msg;
+                        // std::cout << "before: " << msg.getContent() << std::endl;
                         bool o = Module::receive( msg, isBlocking );
+                        // std::cout << "after: " << msg.getContent() << std::endl;
+                        // std::cout << "ScriptedModule.receive : " << msg.getContent() << std::endl;
                         return msg;
                 }
 	protected:

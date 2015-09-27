@@ -6,13 +6,15 @@
 #include <sstream>
 #include <ctime>
 
+#include <iostream>
+
 class Module;
 class Message
 {
 	friend class Module;
 	public:
 		Message( 	const std::string& content = "", 
-					const std::string& topic = "" )
+                                const std::string& topic = "" )
 		:_content(content), _topic(topic)
 		{
 
@@ -33,6 +35,11 @@ class Message
 		std::string getContent()
 		{
 			return _content;
+		}
+		
+		void test()
+		{
+			std::cout << "TEST" << std::endl;
 		}
 
 		std::string getTimeAsString()
