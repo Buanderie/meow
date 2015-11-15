@@ -29,7 +29,10 @@ function csvenv:__init(args)
 	else
 	self.time_interval = 240
 	end
- 
+
+	--- current value buffer
+	self.buffer = {}
+	
 	--- Current offset in CSV file
 	self.csv_offset = 1
 
@@ -42,22 +45,26 @@ function csvenv:__init(args)
 end
 
 function csvenv:getNextState()
-	local ret = {}
-	local i = 0
-	local offset = self.csv_offset
-	while i < self.stock_chunk_len do
-		local currow = self.csv[ offset ]
-		local timeval = tonumber(currow[ 1 ])
-		if timeval - self.last_time_value > self.time_interval then
-			if i == 0 then self.csv_offset = offset end
-			--- print( timeval )
-			--- print( self.last_time_value )
-			local curask = tonumber(currow[ 2 ])
-			table.insert( ret, curask )
-			i = i + 1	
-			self.last_time_value = timeval
-		end	
-		offset = offset + 1
+	local currow = self.csv[ self.csv_offset ]
+	local timeval = tonumber(currow[ 1 ])
+	while timeval - self.last_time_value < self.time_interval do
+		currow = self.csv[ self.csv_offset ]
+		timeval = tonumber(currow[ 1 ])
+		self.csv_offset = self.csv_offset + 1
 	end
-	return torch.Tensor( {ret} ):transpose(1,2)
+	local val = tonumber(currow[2])
+	--- print(timeval)
+	self.last_time_value = timeval
+	-- append value
+	if #self.buffer >= self.stock_chunk_len then
+		table.remove( self.buffer, 1 )
+	end 
+	table.insert( self.buffer, val )
+	--- print( #self.buffer ) 
+	--- return torch.Tensor( {ret} ):transpose(1,2)
+	if #self.buffer < self.stock_chunk_len then
+		return nil
+	else
+		return torch.Tensor( {self.buffer} ):transpose(1,2)
+	end
 end
