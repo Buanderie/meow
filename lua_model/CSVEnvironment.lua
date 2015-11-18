@@ -42,6 +42,37 @@ function csvenv:__init(args)
 	self.csv = csvigo.load({path = self.csv_file, verbose = false, mode = "raw"})
 	--- print(self.csv)
 
+	--- initial portfolio
+	self.current_btc = 60
+	self.current_euro = 0
+
+	--- current BTC value (in euro?)
+	self.current_btc_val = 0
+
+end
+
+function csvenv:sell()
+
+end
+
+function csvenv:buy()
+
+end
+
+function csvenv:act( action_idx )
+	
+	local reward = 0
+
+	if action_idx == 1 then
+		-- selling
+			
+	elseif action_idx == 2 then
+		-- buying 
+		
+	end
+
+	return reward
+
 end
 
 function csvenv:getNextState()
@@ -53,6 +84,7 @@ function csvenv:getNextState()
 		self.csv_offset = self.csv_offset + 1
 	end
 	local val = tonumber(currow[2])
+	self.current_btc_val = val
 	--- print(timeval)
 	self.last_time_value = timeval
 	-- append value

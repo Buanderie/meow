@@ -4,7 +4,7 @@ require('CSVEnvironment')
 require('torch')
 
 -- Create an agent
-local a = DeepQAgent( {popo=2} )
+local a = DeepQAgent{}
 
 -- Create an environment
 local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
@@ -15,10 +15,11 @@ ret2 = csvenv:getNextState()
 ---print(ret2)
 end
 
-test = torch.randn( a.stock_input_len, 1 );
+-- test = torch.randn( a.stock_input_len, 1 );
 --- print(test)
 
 for i=1,10 do
-ret = a:chooseAction(csvenv:getNextState())
-print(ret)
+---ret = a:chooseAction(csvenv:getNextState())
+--print(ret)
+	print(a:actOnInput( csvenv:getNextState() ))
 end

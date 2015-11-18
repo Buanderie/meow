@@ -36,7 +36,10 @@ function dqa:__init(args)
 	
 	--- data input
 	self.stock_input_len = 256
-	
+
+	--- current number of iteration	
+	self.iter = 0
+
 	--- epsilon annealing
 	self.ep_start = 	1
 	self.ep	=		self.ep_start
@@ -49,9 +52,41 @@ function dqa:__init(args)
 
 	--- neural net
 	--- initialized to random weights if no params
-	if args and args["agent_net"] then
-	--- load agent neural net
+	if args.agent_net ~= nil then
+		--- load agent neural net
 	else
-	self:initNeuralNet()	
+		self:initNeuralNet()	
 	end
+end
+
+function dqa:actRandom( input )
+	t = torch.Tensor(1)
+	t:random(1,3)
+	return t
+end
+
+function dqa:actFromNet( input )
+	ret = self.net:forward( input )
+	y,i=torch.max(ret,1)
+	return i
+end
+
+function dqa:actOnInput( input )
+
+	print( self.ep )
+
+	--- epsilon annealing
+	rr = torch.uniform()
+	local ret = nil
+	if rr < self.ep then
+		ret = self:actRandom(input)
+	else
+		ret = self:actFromNet(input)
+	end
+
+	-- anneal the epsilon a little
+	self.ep = self.ep - 0.001
+
+	-- return choosen action
+	return ret
 end
