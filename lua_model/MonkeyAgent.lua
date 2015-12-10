@@ -9,3 +9,7 @@ function ma:actOnInput( input )
 	t:random(1,3)
 	return t
 end
+
+function ma:train( tuple )
+
+end

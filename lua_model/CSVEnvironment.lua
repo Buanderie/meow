@@ -32,6 +32,7 @@ function csvenv:__init(args)
 
 	--- current value buffer
 	self.buffer = {}
+	self.portfolio_buffer = {}
 	
 	--- Current offset in CSV file
 	self.csv_offset = 1
@@ -43,35 +44,83 @@ function csvenv:__init(args)
 	--- print(self.csv)
 
 	--- initial portfolio
-	self.current_btc = 60
-	self.current_euro = 0
-
+	self.current_btc = 0
+	self.current_euro = 60
+	
 	--- current BTC value (in euro?)
 	self.current_btc_val = 0
+	self.prev_btc_val = 0
+	
+end
 
+function csvenv:portfolioValue()
+	local btcval = self.current_btc_val * self.current_btc
+	local eurval = self.current_euro
+	return btcval + eurval
 end
 
 function csvenv:sell()
-
+	if self.current_btc > 0 then
+	self.current_euro = self.current_btc * self.current_btc_val
+	self.current_btc = 0
+	end
 end
 
 function csvenv:buy()
-
+	if self.current_euro > 0 then
+	self.current_btc = self.current_euro / self.current_btc_val
+	self.current_euro = 0
+	end
 end
 
-function csvenv:act( action_idx )
+-- returns reward AND next state given action
+function csvenv:act( action )
+	
+	print("Current BTC price: " .. tostring( self.current_btc_val ))
+	
+	local prevPortfolioValue = self:portfolioValue()
+	
+	print( "Portfolio before: " )
+	print( self.current_euro )
+	print( self.current_btc )
+	print("\n")
+	
+	local action_idx = 0
+	if torch.isTensor( action ) then
+		action_idx = action[1]
+	else
+		action_idx = action
+	end
 	
 	local reward = 0
-
+	
 	if action_idx == 1 then
-		-- selling
+		print("SELL")
+		self:sell()
 			
 	elseif action_idx == 2 then
-		-- buying 
-		
+		print("BUY")
+		self:buy()
+	else
+		print("DO NOTHING")
 	end
-
-	return reward
+	
+	print( "Portfolio after: " )
+	print( self.current_euro )
+	print( self.current_btc )
+	
+	local nextState = self:getNextState()
+	
+	local curPortfolioValue = self:portfolioValue()
+	
+	print( "previous portfolio value: " .. tostring( prevPortfolioValue ))
+	print( "current portfolio value: " .. tostring( curPortfolioValue ))
+	
+	reward = curPortfolioValue - prevPortfolioValue
+	
+	print("---------------------")
+	
+	return reward, nextState
 
 end
 
@@ -84,19 +133,30 @@ function csvenv:getNextState()
 		self.csv_offset = self.csv_offset + 1
 	end
 	local val = tonumber(currow[2])
+	
+	self.prev_btc_val = self.current_btc_val
 	self.current_btc_val = val
+	
 	--- print(timeval)
 	self.last_time_value = timeval
+	
+	self.cur_portfolio_value = self:portfolioValue()
+	
 	-- append value
 	if #self.buffer >= self.stock_chunk_len then
 		table.remove( self.buffer, 1 )
+		table.remove( self.portfolio_buffer, 1 )
 	end 
 	table.insert( self.buffer, val )
+	local pfval = self:portfolioValue()
+	table.insert( self.portfolio_buffer, pfval )
+	
 	--- print( #self.buffer ) 
 	--- return torch.Tensor( {ret} ):transpose(1,2)
 	if #self.buffer < self.stock_chunk_len then
 		return nil
 	else
-		return torch.Tensor( {self.buffer} ):transpose(1,2)
+		-- return torch.Tensor( {self.buffer} ):transpose(1,2)
+		return torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
 	end
 end
