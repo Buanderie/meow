@@ -14,8 +14,9 @@ local a = DeepQAgent{}
 -- Create an environment
 local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
 
-for i=1,3000 do
+for i=1,257 do
 ret2 = csvenv:getNextState()
+print(ret2)
 end
 
 -- test = torch.randn( a.stock_input_len, 1 );

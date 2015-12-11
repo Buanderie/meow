@@ -27,7 +27,7 @@ function csvenv:__init(args)
 	if args.time_interval ~= nil then
 	self.time_interval = args.time_interval
 	else
-	self.time_interval = 240
+	self.time_interval = 36000
 	end
 
 	--- current value buffer
@@ -93,14 +93,23 @@ function csvenv:act( action )
 	end
 	
 	local reward = 0
+	local impossible_move = false
 	
 	if action_idx == 1 then
 		print("SELL")
-		self:sell()
+		if( self.current_btc <= 0 ) then
+			impossible_move = true
+		else
+			self:sell()
+		end
 			
 	elseif action_idx == 2 then
 		print("BUY")
-		self:buy()
+		if( self.current_euro <= 0 ) then
+			impossible_move = true
+		else
+			self:buy()
+		end
 	else
 		print("DO NOTHING")
 	end
@@ -116,7 +125,11 @@ function csvenv:act( action )
 	print( "previous portfolio value: " .. tostring( prevPortfolioValue ))
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
-	reward = curPortfolioValue - prevPortfolioValue
+	if impossible_move ~= true then
+		reward = curPortfolioValue - prevPortfolioValue
+	else
+		reward = 0
+	end
 	
 	print("---------------------")
 	
