@@ -7,6 +7,23 @@ require('csvigo')
 
 local csvenv = torch.class('CSVEnvironment')
 
+function normalizeRows( inp )
+
+	local N = inp:size()[1]
+	local C = inp:size()[2]
+	
+	Z = torch.sum(inp,2)
+  	one_over_Z = torch.cdiv(torch.ones(N) , Z)
+  
+  	out = torch.Tensor(N, C):zero()
+  
+  	for k=1,N do
+    	out[k] = torch.mul(inp[k] , one_over_Z[k])
+  	end
+  	
+  	return out
+end
+
 function csvenv:__init(args)
 	
 	--- output data format
@@ -170,6 +187,12 @@ function csvenv:getNextState()
 		return nil
 	else
 		-- return torch.Tensor( {self.buffer} ):transpose(1,2)
-		return torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
+		-- local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
+		local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} )
+		ret = normalizeRows( ret )
+		-- print(ret:transpose(1,2))
+		return ret:transpose(1,2)
+		--print(torch.std(ret,2,true))
+		--return ret
 	end
 end

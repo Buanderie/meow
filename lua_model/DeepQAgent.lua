@@ -133,11 +133,11 @@ function dqa:actFromNet( input )
 	return ret.action
 end
 
-function dqa:insertToMemory( tuple )
-	
+function dqa:insertToMemory( tuple )	
 	--- if we've reached the maximum number of experiences in memory, remove one at random place (like amnesia)
 	if table.length( self.replay_memory ) > self.replay_memory_max_size - 1 then
 		local sampleIdx = math.random( 1, table.length(self.replay_memory))
+
 		table.remove( self.replay_memory, sampleIdx )
 	end 
 	
