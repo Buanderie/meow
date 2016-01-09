@@ -7,9 +7,19 @@ require('CSVEnvironment')
 require('torch')
 require('gnuplot')
 
+function file_exists(name)
+   local f=io.open(name,"r")
+   if f~=nil then io.close(f) return true else return false end
+end
+
+local netFile = "net.bin"
+if not file_exists( netFile ) then
+	netFile = nil
+end
+
 -- Create an agent
 -- local a = DeepQAgent{}
-local a = DeepQAgent{}
+local a = DeepQAgent{agent_net=netFile}
 
 -- Create an environment
 local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
@@ -57,9 +67,10 @@ for i=1,1000 do
 	if i % 10 == 0 then
 	cgtime = torch.Tensor(time)
 	cgevaluations = torch.Tensor(value)
-	gnuplot.figure(1)
-	gnuplot.title('Average reward over time')
-	gnuplot.plot(cgtime, cgevaluations)
+	--gnuplot.figure(1)
+	--gnuplot.title('Average reward over time')
+	--gnuplot.plot(cgtime, cgevaluations)
+	a:saveNetwork()
 	end
 	
 end

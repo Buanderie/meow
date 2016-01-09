@@ -24,25 +24,38 @@ local dqa = torch.class('DeepQAgent')
 function dqa:initNeuralNet()
 	self.net = nn.Sequential()
 	--self.net:add(nn.TemporalConvolution(
-	self.net:add(nn.TemporalConvolution(2,16,5,1))
+	self.net:add(nn.TemporalConvolution(3,16,5,1))
+	self.net:add(nn.ReLU())
 	self.net:add(nn.TemporalMaxPooling(2))
+	self.net:add(nn.ReLU())
 	self.net:add(nn.TemporalConvolution(16,32,5,1))
+	self.net:add(nn.ReLU())
 	self.net:add(nn.TemporalMaxPooling(2))
 	
-	local testInput = torch.randn( 256, 2 );
+	local testInput = torch.randn( self.stock_input_len, 3 );
 	local testOutput = self.net:forward( testInput )
 	local viewSize = testOutput:size()[1] * testOutput:size()[2]
 	
 	self.net:add(nn.View(viewSize))
 	self.net:add(nn.ReLU())
 	self.net:add(nn.Linear(viewSize, viewSize/2))
-	self.net:add(nn.Tanh())
+	self.net:add(nn.ReLU())
 	self.net:add(nn.Linear(viewSize/2, 128))
 	self.net:add(nn.ReLU())
 	self.net:add(nn.Linear(128, self.number_of_actions))	
 
 	self.criterion = nn.MSECriterion()
 	
+	self.parameters, self.gradParameters = self.net:getParameters()
+end
+
+function dqa:saveNetwork()
+	torch.save('net.bin', self.net)
+end
+
+function dqa:loadNetwork()
+	self.net = torch.load( 'net.bin' )
+	self.criterion = nn.MSECriterion()
 	self.parameters, self.gradParameters = self.net:getParameters()
 end
 
@@ -58,26 +71,26 @@ function dqa:__init(args)
 	self.number_of_actions = 3
 	
 	--- data input
-	self.stock_input_len = 256
+	self.stock_input_len = 16
 
 	--- current number of iteration	
 	self.iter = 0
 
 	--- epsilon annealing
-	self.ep_start = 	0.9
+	self.ep_start = 	0.95
 	self.ep	=			self.ep_start
 	self.ep_end =		0.000001
 	self.ep_end_t =		1000000
 
 	--- replay memory
 	--- max size of replay memory
-	self.replay_memory_max_size = 1000
+	self.replay_memory_max_size = 100000
 	--- actual replay memory
 	self.replay_memory = {}
 	
 	--- Training
 	--- Training batch size
-	self.training_batch_size = 100
+	self.training_batch_size = 200
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
@@ -93,6 +106,7 @@ function dqa:__init(args)
 	--- initialized to random weights if no params
 	if args.agent_net ~= nil then
 		--- load agent neural net
+		self:loadNetwork()
 	else
 		self:initNeuralNet()	
 	end
@@ -146,7 +160,7 @@ end
 
 function dqa:trainFromMemory()
 
-	inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 2 )
+	inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 3 )
 	targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
 		
 	print( "Training with " .. tostring( self.training_batch_size ) .. " samples" )

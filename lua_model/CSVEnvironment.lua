@@ -13,12 +13,19 @@ function normalizeRows( inp )
 	local C = inp:size()[2]
 	
 	Z = torch.sum(inp,2)
+	
   	one_over_Z = torch.cdiv(torch.ones(N) , Z)
   
   	out = torch.Tensor(N, C):zero()
   
   	for k=1,N do
-    	out[k] = torch.mul(inp[k] , one_over_Z[k])
+  		local m = inp[k]:mean()
+  		local s = inp[k]:std()
+  		out[k] = inp[k]
+  		if s ~= 0 then 
+    		out[k]:add(-m)
+    		out[k]:div(s)
+  		end
   	end
   	
   	return out
@@ -30,7 +37,7 @@ function csvenv:__init(args)
 	if args.stock_chunk_len ~= nil then
 	self.stock_chunk_len = args.stock_chunk_len
 	else
-	self.stock_chunk_len = 256
+	self.stock_chunk_len = 16
 	end
 
 	--- CSV file we'll be using
@@ -44,12 +51,14 @@ function csvenv:__init(args)
 	if args.time_interval ~= nil then
 	self.time_interval = args.time_interval
 	else
-	self.time_interval = 36000
+	self.time_interval = 7200
 	end
 
 	--- current value buffer
 	self.buffer = {}
 	self.portfolio_buffer = {}
+	self.portfolio_eur = {}
+	self.portfolio_btc = {}
 	
 	--- Current offset in CSV file
 	self.csv_offset = 1
@@ -142,11 +151,11 @@ function csvenv:act( action )
 	print( "previous portfolio value: " .. tostring( prevPortfolioValue ))
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
-	if impossible_move ~= true then
+	----if impossible_move ~= true then
 		reward = curPortfolioValue - prevPortfolioValue
-	else
-		reward = 0
-	end
+	---else
+	--	reward = 0
+	--end
 	
 	print("---------------------")
 	
@@ -176,10 +185,14 @@ function csvenv:getNextState()
 	if #self.buffer >= self.stock_chunk_len then
 		table.remove( self.buffer, 1 )
 		table.remove( self.portfolio_buffer, 1 )
+		table.remove( self.portfolio_eur, 1 )
+		table.remove( self.portfolio_btc, 1 )
 	end 
 	table.insert( self.buffer, val )
 	local pfval = self:portfolioValue()
 	table.insert( self.portfolio_buffer, pfval )
+	table.insert( self.portfolio_eur, self.current_euro )
+	table.insert( self.portfolio_btc, self.current_btc )
 	
 	--- print( #self.buffer ) 
 	--- return torch.Tensor( {ret} ):transpose(1,2)
@@ -188,7 +201,8 @@ function csvenv:getNextState()
 	else
 		-- return torch.Tensor( {self.buffer} ):transpose(1,2)
 		-- local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
-		local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} )
+		-- local ret = torch.Tensor( {self.buffer, self.portfolio_eur, self.portfolio_btc} )
+		local ret = torch.Tensor( {self.buffer, self.buffer, self.buffer} )
 		ret = normalizeRows( ret )
 		-- print(ret:transpose(1,2))
 		return ret:transpose(1,2)
