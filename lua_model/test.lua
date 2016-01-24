@@ -1,5 +1,6 @@
 require('torch')
 require('nn')
+require 'cunn'
 
 module = nn.JoinTable(2, 2)
 

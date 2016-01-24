@@ -37,7 +37,7 @@ function csvenv:__init(args)
 	if args.stock_chunk_len ~= nil then
 	self.stock_chunk_len = args.stock_chunk_len
 	else
-	self.stock_chunk_len = 16
+	self.stock_chunk_len = 24
 	end
 
 	--- CSV file we'll be using
@@ -51,7 +51,7 @@ function csvenv:__init(args)
 	if args.time_interval ~= nil then
 	self.time_interval = args.time_interval
 	else
-	self.time_interval = 7200
+	self.time_interval = 3600
 	end
 
 	--- current value buffer
@@ -153,9 +153,9 @@ function csvenv:act( action )
 	
 	if impossible_move ~= true then
 		reward = curPortfolioValue - prevPortfolioValue
-		if action_idx == 2 and reward > 0 then
-			reward = reward * 2
-		end
+		-- if action_idx == 2 and reward > 0 then
+		--	reward = reward * 2
+		-- end
 	else
 		reward = -1
 	end

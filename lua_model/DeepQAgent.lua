@@ -81,12 +81,12 @@ function dqa:initNeuralNet()
 	]]--
 	
 	model1 = nn.Sequential()
-	model1:add( nn.TemporalConvolution(1,16,5,1) )
+	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.TemporalMaxPooling(2) )
-	model1:add( nn.ReLU() )
-	model1:add( nn.TemporalConvolution(16,32,5,1) )
+	model1:add( nn.Tanh() )
+	model1:add( nn.TemporalConvolution(32,64,5,1) )
 	model1:add( nn.TemporalMaxPooling(2) )
-	model1:add( nn.ReLU() )
+	model1:add( nn.Tanh() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
         
@@ -102,11 +102,11 @@ function dqa:initNeuralNet()
 	
 	model3 = nn.Sequential()
 	model3:add( nn.Linear( inSize, inSize * 2 ) )
-	model3:add( nn.ReLU() )
+	model3:add( nn.Tanh() )
 	model3:add( nn.Linear( inSize * 2, inSize ) )
-	model3:add( nn.ReLU() )
+	model3:add( nn.Tanh() )
 	model3:add( nn.Linear( inSize, self.number_of_actions ) )
-	model3:add( nn.ReLU() )
+	model3:add( nn.Tanh() )
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
 	
@@ -153,7 +153,7 @@ function dqa:__init(args)
 	self.number_of_actions = 3
 	
 	--- data input
-	self.stock_input_len = 16
+	self.stock_input_len = 24
 
 	--- current number of iteration	
 	self.iter = 0
