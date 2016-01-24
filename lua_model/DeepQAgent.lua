@@ -22,8 +22,42 @@ end
 local dqa = torch.class('DeepQAgent')
 
 function dqa:initNeuralNet()
-	self.net = nn.Sequential()
+
+	-- self.net = nn.Sequential()
+	
+	--[[
+	local parconv = nn.Parallel(2,1)
+	for i = 1,3 do -- I need to generate 3 sequential structures
+    	local model = nn.Sequential()
+    	model:add(nn.TemporalConvolution(1,16,5))
+    	model:add(nn.ReLU())
+    	model:add(nn.TemporalMaxPooling(2))
+    	model:add(nn.TemporalConvolution(16,16,5))
+    	model:add(nn.ReLU())
+    	model:add(nn.TemporalMaxPooling(2))
+    	model:add(nn.ReLU())
+    	parconv:add(model) -- add each to the main model
+	end
+	
+	self.net:add( parconv )
+	
+	local testInput = torch.randn( self.stock_input_len, 3, 1 );
+	--print(testInput)
+	local testOutput = self.net:forward( testInput )
+	local viewSize = testOutput:size()[1] * testOutput:size()[2]
+	
+	self.net:add( nn.Reshape( viewSize ) )
+	
+	self.net:add(nn.ReLU())
+	self.net:add(nn.Linear(viewSize, viewSize/2))
+	self.net:add(nn.ReLU())
+	self.net:add(nn.Linear(viewSize/2, 128))
+	self.net:add(nn.ReLU())
+	self.net:add(nn.Linear(128, self.number_of_actions))
+	]]--
+	
 	--self.net:add(nn.TemporalConvolution(
+	--[[
 	self.net:add(nn.TemporalConvolution(3,16,5,1))
 	self.net:add(nn.ReLU())
 	self.net:add(nn.TemporalMaxPooling(2))
@@ -42,10 +76,58 @@ function dqa:initNeuralNet()
 	self.net:add(nn.ReLU())
 	self.net:add(nn.Linear(viewSize/2, 128))
 	self.net:add(nn.ReLU())
-	self.net:add(nn.Linear(128, self.number_of_actions))	
-
-	self.criterion = nn.MSECriterion()
+	self.net:add(nn.Linear(128, self.number_of_actions))		
+	self.net:add(nn.ReLU())
+	]]--
 	
+	model1 = nn.Sequential()
+	model1:add( nn.TemporalConvolution(1,16,5,1) )
+	model1:add( nn.TemporalMaxPooling(2) )
+	model1:add( nn.ReLU() )
+	model1:add( nn.TemporalConvolution(16,32,5,1) )
+	model1:add( nn.TemporalMaxPooling(2) )
+	model1:add( nn.ReLU() )
+	local m = nn.View(-1):setNumInputDims(2)
+    model1:add(m)
+        
+	model2 = nn.Sequential():add( nn.Identity() )
+	
+	local size1 = model1:forward( torch.rand( self.stock_input_len, 1 ) ):size()
+	size1 = size1[#size1]
+	-- print( "size1:" )
+	-- print( size1 )
+	local size2 = model2:forward( torch.rand( 2 ) ):size()[1]
+	local inSize = size1 + size2
+	-- print( inSize )
+	
+	model3 = nn.Sequential()
+	model3:add( nn.Linear( inSize, inSize * 2 ) )
+	model3:add( nn.ReLU() )
+	model3:add( nn.Linear( inSize * 2, inSize ) )
+	model3:add( nn.ReLU() )
+	model3:add( nn.Linear( inSize, self.number_of_actions ) )
+	model3:add( nn.ReLU() )
+	
+	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
+	
+	-- coucou = { torch.rand( 3, 16, 1 ), torch.rand( 3, 2 ) }
+	-- pp = self.net:forward( coucou )
+	-- print( "pp" )
+	-- print( pp )
+	-- popopopopo()
+	
+	--[[
+	local viewSize = self.stock_input_len * 3
+	self.net:add( nn.Reshape( self.stock_input_len * 3 ) )
+	self.net:add(nn.Linear(viewSize, viewSize/2))
+	self.net:add(nn.ReLU())
+	self.net:add(nn.Linear(viewSize/2, 128))
+	self.net:add(nn.ReLU())
+	self.net:add(nn.Linear(128, self.number_of_actions))
+	self.net:add(nn.ReLU())
+	]]--
+	
+	self.criterion = nn.MSECriterion()
 	self.parameters, self.gradParameters = self.net:getParameters()
 end
 
@@ -77,7 +159,7 @@ function dqa:__init(args)
 	self.iter = 0
 
 	--- epsilon annealing
-	self.ep_start = 	0.95
+	self.ep_start = 	0.9
 	self.ep	=			self.ep_start
 	self.ep_end =		0.000001
 	self.ep_end_t =		1000000
@@ -90,7 +172,7 @@ function dqa:__init(args)
 	
 	--- Training
 	--- Training batch size
-	self.training_batch_size = 200
+	self.training_batch_size = 250
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
@@ -110,6 +192,78 @@ function dqa:__init(args)
 	else
 		self:initNeuralNet()	
 	end
+	self.target_q = args.target_q
+    
+    self.w, self.dw = self.net:getParameters()
+    self.dw:zero()
+
+    self.deltas = self.dw:clone():fill(0)
+
+    self.tmp= self.dw:clone():fill(0)
+    self.g  = self.dw:clone():fill(0)
+    self.g2 = self.dw:clone():fill(0)
+    
+end
+
+function dqa:getQUpdate(args)
+    local s, a, r, s2, term, delta
+    local q, q2, q2_max
+
+    s = args.s
+    a = args.a
+    r = args.r
+    s2 = args.s2
+    -- term = args.term
+
+    -- The order of calls to forward is a bit odd in order
+    -- to avoid unnecessary calls (we only need 2).
+
+    -- delta = r + (1-terminal) * gamma * max_a Q(s2, a) - Q(s, a)
+    -- term = term:clone():float():mul(-1):add(1)
+
+    local target_q_net
+    if self.target_q then
+        target_q_net = self.target_network
+    else
+        target_q_net = self.net
+    end
+
+    -- Compute max_a Q(s_2, a).
+    q2_max = target_q_net:forward(s2):float():max(1)
+
+    -- Compute q2 = (1-terminal) * gamma * max_a Q(s2, a)
+    q2 = q2_max:clone():mul(self.gamma)
+
+    delta = torch.Tensor(1):fill(r):clone():float()
+
+    --if self.rescale_r then
+    --    delta:div(self.r_max)
+    --end
+    delta:add(q2)
+
+    -- q = Q(s,a)
+    local q_all = self.net:forward(s):float()
+    print( "q_all=" .. tostring( q_all ) )
+    
+    q = torch.FloatTensor(q_all:size(1))
+    for i=1,q_all:size(1) do
+        q[i] = q_all[i][a[i]]
+    end
+    delta:add(-1, q)
+
+    --if self.clip_delta then
+    --    delta[delta:ge(self.clip_delta)] = self.clip_delta
+    --    delta[delta:le(-self.clip_delta)] = -self.clip_delta
+    --end
+
+    local targets = torch.zeros(self.training_batch_size, self.number_of_actions):float()
+    for i=1,math.min(self.minibatch_size,a:size(1)) do
+        targets[i][a[i]] = delta[i]
+    end
+
+    if self.gpu >= 0 then targets = targets:cuda() end
+
+    return targets, delta, q2_max
 end
 
 function dqa:actRandom( input )
@@ -119,6 +273,8 @@ function dqa:actRandom( input )
 end
 
 function dqa:forward( input )
+	---print("input avant: " .. tostring(input))
+	--print( "input: " .. tostring(input))
 	local ret = self.net:forward( input )
 	return ret
 end
@@ -129,7 +285,7 @@ function dqa:policy( input )
   	local max_index = 1
  
  	-- find maximum output and note its index and value
-  	for i = 2, self.number_of_actions do
+  	for i = 1, self.number_of_actions do
   		if action_values[i] > maxval then
   			maxval = action_values[i]
   			max_index = i
@@ -142,9 +298,10 @@ end
 function dqa:actFromNet( input )
 	print("############## ACT FROM BRAIN ################")
 	local ret = self:policy( input )	
-	--print( ret )
+	local rert = self.net:forward( input )
+	print( "ret.... " .. tostring(rert) )
 	print( "############# END ###########################")
-	return ret.action
+	return torch.Tensor(1):fill(ret.action)
 end
 
 function dqa:insertToMemory( tuple )	
@@ -159,8 +316,10 @@ function dqa:insertToMemory( tuple )
 end
 
 function dqa:trainFromMemory()
-
-	inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 3 )
+	
+	h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 1 )
+	p_inputs = torch.Tensor(self.training_batch_size, 2 )
+	
 	targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
 		
 	print( "Training with " .. tostring( self.training_batch_size ) .. " samples" )
@@ -171,8 +330,13 @@ function dqa:trainFromMemory()
 		local sample = self.replay_memory[ sampleIdx ];
 		-- print( sample )
 		
+		---print( "test DQN #1" )
+		--local targets, delta, q2_max = self:getQUpdate{s=sample[1], a=sample[2], r=sample[3], s2=sample[4], update_qmax=true}
+		--print( tostring( targets ) )
+		--print( "end of test")
+		
 		-- copy state from experience S0
-        local x = torch.Tensor(sample[1]);
+        local x = sample[1];
    
    		-- compute best action for the new state S1
         local best_action = self:policy(sample[4]);
@@ -185,10 +349,15 @@ function dqa:trainFromMemory()
    			
    		
    		local all_outputs = self.net:forward(x);
-		inputs[k] = x:clone();      	
+		-- inputs[k] = x:clone();      	
+		h_inputs[k] = x[1]:clone()
+		p_inputs[k] = x[2]:clone()
 		targets[k] = all_outputs:clone();
-		targets[k][2] = sample[3] + self.gamma * best_action.value; 
+		-- print( sample[2][1] )
+		targets[k][ sample[2][1] ] = sample[3] + self.gamma * best_action.value; 
 	end
+	-- Concatenate all this shit
+	inputs = { h_inputs, p_inputs }
 	
 		--- EVAL CLOSURE STARTS
 		-- create training function to give to optim.sgd
@@ -212,7 +381,7 @@ function dqa:trainFromMemory()
 	     self.net:backward(inputs, df_do)
 
 	     -- penalties (L1 and L2):
-	     if self.coefL1 ~= 0 or Brain.coefL2 ~= 0 then
+	     if self.coefL1 ~= 0 or self.coefL2 ~= 0 then
 	        -- locals:
 	       local norm,sign = torch.norm,torch.sign
 
@@ -268,7 +437,10 @@ function dqa:actOnInput( input )
 	end
 
 	-- anneal the epsilon a little
-	self.ep = self.ep - 0.001
+	self.ep = self.ep - 0.000001
+	
+	-- increment number of steps
+	self.iter = self.iter + 1
 	
 	-- return choosen action
 	return ret

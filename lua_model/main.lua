@@ -26,7 +26,7 @@ local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
 
 for i=1,257 do
 ret2 = csvenv:getNextState()
-print(ret2)
+-- print(ret2)
 end
 
 -- test = torch.randn( a.stock_input_len, 1 );
@@ -40,7 +40,7 @@ nsteps = 0
 
 -- initial state
 local state = csvenv:getNextState()
-for i=1,1000 do
+for i=1,10000 do
 	-- coucou = torch.Tensor(1)
 	-- print( coucou[1] )
 	-- ret2 = csvenv:getNextState()

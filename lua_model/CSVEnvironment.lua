@@ -151,16 +151,48 @@ function csvenv:act( action )
 	print( "previous portfolio value: " .. tostring( prevPortfolioValue ))
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
-	----if impossible_move ~= true then
+	if impossible_move ~= true then
 		reward = curPortfolioValue - prevPortfolioValue
-	---else
-	--	reward = 0
-	--end
+		if action_idx == 2 and reward > 0 then
+			reward = reward * 2
+		end
+	else
+		reward = -1
+	end
 	
 	print("---------------------")
 	
 	return reward, nextState
 
+end
+
+function csvenv:getPortfolioState()
+	local ret = torch.Tensor( 1, 2 );
+	ret[1][1] = self.current_euro / self:portfolioValue()
+	ret[1][2] = self.current_btc / self:portfolioValue()
+	return ret:reshape(2)
+end
+
+function csvenv:testNewModel(x)
+	
+	model1 = nn.Sequential()
+	model1:add(nn.TemporalConvolution(1,4,3,1))
+	model1:add(nn.ReLU())
+	model1:add(nn.TemporalMaxPooling(2))
+	model1:add(nn.ReLU())
+	local m = nn.View(-1):setNumInputDims(2)
+	model1:add(m)
+
+	model2 = nn.Sequential():add(nn.Linear(2, 1)):add(nn.Tanh())
+
+	model3 = nn.Linear(29, 4)
+
+	global = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
+	print( "x:" )
+	print( x )
+	popo = global:forward( x )
+	print( "popo:\n" )
+	print( popo )
 end
 
 function csvenv:getNextState()
@@ -201,11 +233,19 @@ function csvenv:getNextState()
 	else
 		-- return torch.Tensor( {self.buffer} ):transpose(1,2)
 		-- local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
-		-- local ret = torch.Tensor( {self.buffer, self.portfolio_eur, self.portfolio_btc} )
-		local ret = torch.Tensor( {self.buffer, self.buffer, self.buffer} )
-		ret = normalizeRows( ret )
+		
+		local normalizedHistory = ( torch.Tensor( {self.buffer} ) )
+		normalizedHistory = normalizeRows( normalizedHistory )
+		-- print( "normalizedHistory: " .. tostring( normalizedHistory ) )
+		 --print( self:getPortfolioState() )
+		local ret = {normalizedHistory:transpose(1,2), self:getPortfolioState() }
+		-- local ret = torch.Tensor( {self.buffer, self.buffer, self.buffer} )
+		-- print( "ret: \n" )
+		-- print( ret )
+		
+		return ret
 		-- print(ret:transpose(1,2))
-		return ret:transpose(1,2)
+		-- return ret:transpose(1,2)
 		--print(torch.std(ret,2,true))
 		--return ret
 	end
