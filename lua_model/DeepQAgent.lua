@@ -81,12 +81,15 @@ function dqa:initNeuralNet()
 	]]--
 	
 	model1 = nn.Sequential()
-	model1:add( nn.TemporalConvolution(1,32,5,1) )
-	model1:add( nn.TemporalMaxPooling(2) )
+	
+	model1:add( nn.TemporalConvolution(1,8,5,1) )
 	model1:add( nn.Tanh() )
-	model1:add( nn.TemporalConvolution(32,64,5,1) )
 	model1:add( nn.TemporalMaxPooling(2) )
+	model1:add( nn.TemporalConvolution(8,16,5,1) )
 	model1:add( nn.Tanh() )
+	model1:add( nn.TemporalMaxPooling(2) )
+	
+	-- model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
         
@@ -101,11 +104,11 @@ function dqa:initNeuralNet()
 	-- print( inSize )
 	
 	model3 = nn.Sequential()
-	model3:add( nn.Linear( inSize, inSize * 2 ) )
+	model3:add( nn.Linear( inSize, 128 ) )
+	-- model3:add( nn.Sigmoid() )
+	-- model3:add( nn.Linear( inSize * 2, inSize ) )
 	model3:add( nn.Tanh() )
-	model3:add( nn.Linear( inSize * 2, inSize ) )
-	model3:add( nn.Tanh() )
-	model3:add( nn.Linear( inSize, self.number_of_actions ) )
+	model3:add( nn.Linear( 128, self.number_of_actions ) )
 	model3:add( nn.Tanh() )
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
@@ -164,6 +167,8 @@ function dqa:__init(args)
 	self.ep_end =		0.000001
 	self.ep_end_t =		1000000
 
+	self.learn =		true
+	
 	--- replay memory
 	--- max size of replay memory
 	self.replay_memory_max_size = 100000
@@ -171,8 +176,10 @@ function dqa:__init(args)
 	self.replay_memory = {}
 	
 	--- Training
+	self.trainingCount = 0
+	
 	--- Training batch size
-	self.training_batch_size = 250
+	self.training_batch_size = 1000
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
@@ -192,16 +199,13 @@ function dqa:__init(args)
 	else
 		self:initNeuralNet()	
 	end
-	self.target_q = args.target_q
+	
+	-- Target network
+	self.target_net = args.target_q
+    if not self.target_q then
+    	self.target_net = self.agent_net
+    end
     
-    self.w, self.dw = self.net:getParameters()
-    self.dw:zero()
-
-    self.deltas = self.dw:clone():fill(0)
-
-    self.tmp= self.dw:clone():fill(0)
-    self.g  = self.dw:clone():fill(0)
-    self.g2 = self.dw:clone():fill(0)
     
 end
 
@@ -272,15 +276,20 @@ function dqa:actRandom( input )
 	return t
 end
 
-function dqa:forward( input )
+function dqa:forward( input, net )
 	---print("input avant: " .. tostring(input))
 	--print( "input: " .. tostring(input))
-	local ret = self.net:forward( input )
+	local ret
+	if net ~= nil then
+		ret = net:forward( input )
+	else
+		ret = self.net:forward( input )
+	end
 	return ret
 end
 
-function dqa:policy( input )
-	local action_values = self:forward( input )
+function dqa:policy( input, net )
+	local action_values = self:forward( input, net )
 	local maxval = action_values[1]
   	local max_index = 1
  
@@ -324,6 +333,16 @@ function dqa:trainFromMemory()
 		
 	print( "Training with " .. tostring( self.training_batch_size ) .. " samples" )
 	
+	-- Switch the target network regularly
+	if self.iter % 10 == 0 then
+		print( "#### Updating target network ! ####\n" )
+		-- print( self.net )
+		-- print( self.target_net )
+		self.target_net = self.net
+		-- elf.net:copy(self.target_net)
+		-- self.target_net = torch.load( 'net.bin' )
+	end
+	
 	for k = 1, self.training_batch_size do
 		--- Choose tuple randomly from replay memory
 		local sampleIdx = math.random( 1, table.length(self.replay_memory))
@@ -339,7 +358,7 @@ function dqa:trainFromMemory()
         local x = sample[1];
    
    		-- compute best action for the new state S1
-        local best_action = self:policy(sample[4]);
+        local best_action = self:policy(sample[4], self.target_net);
         
         --[[ get current action output values
    				we want to make the target outputs the same as the actual outputs
@@ -417,7 +436,7 @@ function dqa:train( stepTuple )
 	self:insertToMemory( stepTuple )
 	
 	--- Train
-	if table.length( self.replay_memory ) > self.training_batch_size then
+	if self.learn and table.length( self.replay_memory ) > self.training_batch_size then
 		self:trainFromMemory()
 	end
 	
