@@ -82,10 +82,10 @@ function dqa:initNeuralNet()
 	
 	model1 = nn.Sequential()
 	
-	model1:add( nn.TemporalConvolution(1,8,5,1) )
+	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
-	model1:add( nn.TemporalConvolution(8,16,5,1) )
+	model1:add( nn.TemporalConvolution(32,16,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
@@ -104,11 +104,11 @@ function dqa:initNeuralNet()
 	-- print( inSize )
 	
 	model3 = nn.Sequential()
-	model3:add( nn.Linear( inSize, 128 ) )
-	-- model3:add( nn.Sigmoid() )
-	-- model3:add( nn.Linear( inSize * 2, inSize ) )
+	model3:add( nn.Linear( inSize, inSize * 2 ) )
 	model3:add( nn.Tanh() )
-	model3:add( nn.Linear( 128, self.number_of_actions ) )
+	model3:add( nn.Linear( inSize * 2, inSize ) )
+	model3:add( nn.Tanh() )
+	model3:add( nn.Linear( inSize, self.number_of_actions ) )
 	model3:add( nn.Tanh() )
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
@@ -179,7 +179,7 @@ function dqa:__init(args)
 	self.trainingCount = 0
 	
 	--- Training batch size
-	self.training_batch_size = 1000
+	self.training_batch_size = 500
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
@@ -334,10 +334,12 @@ function dqa:trainFromMemory()
 	print( "Training with " .. tostring( self.training_batch_size ) .. " samples" )
 	
 	-- Switch the target network regularly
-	if self.iter % 10 == 0 then
+	if self.iter % 50 == 0 then
 		print( "#### Updating target network ! ####\n" )
 		-- print( self.net )
 		-- print( self.target_net )
+		self:saveNetwork()
+		-- a:saveNetwork()
 		self.target_net = self.net
 		-- elf.net:copy(self.target_net)
 		-- self.target_net = torch.load( 'net.bin' )
@@ -428,6 +430,9 @@ function dqa:trainFromMemory()
         print( "Current loss: " .. tostring(fs[1] ) )
         -- sleep(1)
         
+        -- increment number of learning steps
+		self.iter = self.iter + 1
+        
 end
 
 function dqa:train( stepTuple )
@@ -457,9 +462,6 @@ function dqa:actOnInput( input )
 
 	-- anneal the epsilon a little
 	self.ep = self.ep - 0.000001
-	
-	-- increment number of steps
-	self.iter = self.iter + 1
 	
 	-- return choosen action
 	return ret
