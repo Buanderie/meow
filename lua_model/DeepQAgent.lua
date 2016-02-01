@@ -6,6 +6,9 @@ require('torch')
 require('nn')
 require('optim')
 
+require('cutorch')
+require('cunn')
+
 function table.length(T)
   local count = 0
   for _ in pairs(T) do count = count + 1 end
@@ -83,16 +86,25 @@ function dqa:initNeuralNet()
 	model1 = nn.Sequential()
 	
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
-	model1:add( nn.Tanh() )
-	model1:add( nn.TemporalMaxPooling(2) )
-	model1:add( nn.TemporalConvolution(32,16,5,1) )
-	model1:add( nn.Tanh() )
+	model1:add( nn.ReLU() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
+	if self.use_thompson then
+	model1:add( nn.Dropout() )
+	end
+	
+	model1:add( nn.TemporalConvolution(32,16,5,1) )
+	model1:add( nn.ReLU() )
+	model1:add( nn.TemporalMaxPooling(2) )
+	
+	if self.use_thompson then
+	model1:add( nn.Dropout() )
+	end
+
 	-- model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
-        
+    
 	model2 = nn.Sequential():add( nn.Identity() )
 	
 	local size1 = model1:forward( torch.rand( self.stock_input_len, 1 ) ):size()
@@ -105,11 +117,14 @@ function dqa:initNeuralNet()
 	
 	model3 = nn.Sequential()
 	model3:add( nn.Linear( inSize, inSize * 2 ) )
-	model3:add( nn.Tanh() )
+	model3:add( nn.ReLU() )
+	if self.use_thompson then
+		model3:add( nn.Dropout() )
+	end
 	model3:add( nn.Linear( inSize * 2, inSize ) )
-	model3:add( nn.Tanh() )
+	model3:add( nn.ReLU() )
 	model3:add( nn.Linear( inSize, self.number_of_actions ) )
-	model3:add( nn.Tanh() )
+	-- model3:add( nn.SoftMax() )
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
 	
@@ -132,6 +147,11 @@ function dqa:initNeuralNet()
 	
 	self.criterion = nn.MSECriterion()
 	self.parameters, self.gradParameters = self.net:getParameters()
+	
+	if self.gpu then
+		self.criterion = self.criterion:cuda()
+	end
+	
 end
 
 function dqa:saveNetwork()
@@ -161,12 +181,20 @@ function dqa:__init(args)
 	--- current number of iteration	
 	self.iter = 0
 
+	--- GPU ?
+	self.gpu = false
+	
 	--- epsilon annealing
 	self.ep_start = 	0.9
 	self.ep	=			self.ep_start
 	self.ep_end =		0.000001
 	self.ep_end_t =		1000000
 
+	--- Thompson Sampling
+	self.use_thompson =		true
+	self.thompson_samples =	1
+	
+	--- enable/disable learning
 	self.learn =		true
 	
 	--- replay memory
@@ -176,14 +204,15 @@ function dqa:__init(args)
 	self.replay_memory = {}
 	
 	--- Training
-	self.trainingCount = 0
+	self.nsteps = 1
+	self.learning_steps_burnin = 10000
 	
 	--- Training batch size
-	self.training_batch_size = 500
+	self.training_batch_size = 250
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
-   	self.coefL1 = 0.001
+   	self.coefL1 = 0.0
    	self.coefL2 = 0.001
    	
 	--- Gamma 
@@ -200,74 +229,22 @@ function dqa:__init(args)
 		self:initNeuralNet()	
 	end
 	
+	if self.gpu then
+		self.net:cuda()
+		self.tensor_type = torch.CudaTensor
+	else
+		-- self.net:float()
+        -- self.tensor_type = torch.FloatTensor
+	end
+	
+	
 	-- Target network
 	self.target_net = args.target_q
     if not self.target_q then
-    	self.target_net = self.agent_net
+    	self.target_net = self.net
     end
     
     
-end
-
-function dqa:getQUpdate(args)
-    local s, a, r, s2, term, delta
-    local q, q2, q2_max
-
-    s = args.s
-    a = args.a
-    r = args.r
-    s2 = args.s2
-    -- term = args.term
-
-    -- The order of calls to forward is a bit odd in order
-    -- to avoid unnecessary calls (we only need 2).
-
-    -- delta = r + (1-terminal) * gamma * max_a Q(s2, a) - Q(s, a)
-    -- term = term:clone():float():mul(-1):add(1)
-
-    local target_q_net
-    if self.target_q then
-        target_q_net = self.target_network
-    else
-        target_q_net = self.net
-    end
-
-    -- Compute max_a Q(s_2, a).
-    q2_max = target_q_net:forward(s2):float():max(1)
-
-    -- Compute q2 = (1-terminal) * gamma * max_a Q(s2, a)
-    q2 = q2_max:clone():mul(self.gamma)
-
-    delta = torch.Tensor(1):fill(r):clone():float()
-
-    --if self.rescale_r then
-    --    delta:div(self.r_max)
-    --end
-    delta:add(q2)
-
-    -- q = Q(s,a)
-    local q_all = self.net:forward(s):float()
-    print( "q_all=" .. tostring( q_all ) )
-    
-    q = torch.FloatTensor(q_all:size(1))
-    for i=1,q_all:size(1) do
-        q[i] = q_all[i][a[i]]
-    end
-    delta:add(-1, q)
-
-    --if self.clip_delta then
-    --    delta[delta:ge(self.clip_delta)] = self.clip_delta
-    --    delta[delta:le(-self.clip_delta)] = -self.clip_delta
-    --end
-
-    local targets = torch.zeros(self.training_batch_size, self.number_of_actions):float()
-    for i=1,math.min(self.minibatch_size,a:size(1)) do
-        targets[i][a[i]] = delta[i]
-    end
-
-    if self.gpu >= 0 then targets = targets:cuda() end
-
-    return targets, delta, q2_max
 end
 
 function dqa:actRandom( input )
@@ -277,8 +254,12 @@ function dqa:actRandom( input )
 end
 
 function dqa:forward( input, net )
-	---print("input avant: " .. tostring(input))
-	--print( "input: " .. tostring(input))
+	
+	if self.gpu then
+		input[1] = input[1]:cuda()
+		input[2] = input[2]:cuda()
+	end
+	
 	local ret
 	if net ~= nil then
 		ret = net:forward( input )
@@ -305,11 +286,7 @@ function dqa:policy( input, net )
 end
 
 function dqa:actFromNet( input )
-	print("############## ACT FROM BRAIN ################")
 	local ret = self:policy( input )	
-	local rert = self.net:forward( input )
-	print( "ret.... " .. tostring(rert) )
-	print( "############# END ###########################")
 	return torch.Tensor(1):fill(ret.action)
 end
 
@@ -317,23 +294,32 @@ function dqa:insertToMemory( tuple )
 	--- if we've reached the maximum number of experiences in memory, remove one at random place (like amnesia)
 	if table.length( self.replay_memory ) > self.replay_memory_max_size - 1 then
 		local sampleIdx = math.random( 1, table.length(self.replay_memory))
-
 		table.remove( self.replay_memory, sampleIdx )
 	end 
 	
 	table.insert( self.replay_memory, tuple )
+	
+	print( "Replay memory size: " .. tostring( table.length( self.replay_memory ) ) .. " / " .. tostring( self.replay_memory_max_size ) )
 end
 
 function dqa:trainFromMemory()
 	
-	h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 1 )
-	p_inputs = torch.Tensor(self.training_batch_size, 2 )
+	if self.gpu then
+		h_inputs = torch.CudaTensor(self.training_batch_size, self.stock_input_len, 1 )
+		p_inputs = torch.CudaTensor(self.training_batch_size, 2 )
+		targets = torch.CudaTensor(self.training_batch_size, self.number_of_actions, 1 )
+	else
+		h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 1 )
+		p_inputs = torch.Tensor(self.training_batch_size, 2 )
+		targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
+	end
 	
-	targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
+	
 		
 	print( "Training with " .. tostring( self.training_batch_size ) .. " samples" )
 	
 	-- Switch the target network regularly
+	--[[
 	if self.iter % 50 == 0 then
 		print( "#### Updating target network ! ####\n" )
 		-- print( self.net )
@@ -344,12 +330,14 @@ function dqa:trainFromMemory()
 		-- elf.net:copy(self.target_net)
 		-- self.target_net = torch.load( 'net.bin' )
 	end
+	]]--
 	
 	for k = 1, self.training_batch_size do
 		--- Choose tuple randomly from replay memory
 		local sampleIdx = math.random( 1, table.length(self.replay_memory))
+		-- print( "sampleIdx = " .. tostring( sampleIdx ) )
 		local sample = self.replay_memory[ sampleIdx ];
-		-- print( sample )
+		-- print( sample[3] )
 		
 		---print( "test DQN #1" )
 		--local targets, delta, q2_max = self:getQUpdate{s=sample[1], a=sample[2], r=sample[3], s2=sample[4], update_qmax=true}
@@ -368,6 +356,11 @@ function dqa:trainFromMemory()
 	   			the reward that was obtained + the utility of the resulting state
    			--]]
    			
+   		if self.gpu then
+   			x[1] = x[1]:cuda()
+   			x[2] = x[2]:cuda()
+   		end
+   		-- print( x )
    		
    		local all_outputs = self.net:forward(x);
 		-- inputs[k] = x:clone();      	
@@ -441,28 +434,90 @@ function dqa:train( stepTuple )
 	self:insertToMemory( stepTuple )
 	
 	--- Train
-	if self.learn and table.length( self.replay_memory ) > self.training_batch_size then
+	if self.learn and table.length( self.replay_memory ) > self.training_batch_size and self.nsteps >= self.learning_steps_burnin then
 		self:trainFromMemory()
 	end
 	
 end
 
-function dqa:actOnInput( input )
-
-	print( self.ep )
-
+function dqa:actEGreedy( input )
+	print("############## ACT USING EPSILON GREEDY ################")
+	
 	--- epsilon greedy
 	rr = torch.uniform()
 	local ret = nil
-	if rr < self.ep then
-		ret = self:actRandom(input)
+	
+	if rr >= self.ep then
+		local x = self:forward( input )
+		-- find maximum output and note its index and value
+	  	local maxval = x[1]
+	  	local max_index = 1
+	  	for i = 1, self.number_of_actions do
+	  		if x[i] > maxval then
+	  			maxval = x[i]
+	  			max_index = i
+	  		end
+	  	end
+	  	print( x )
+	  	ret = torch.Tensor(1):fill(max_index)
 	else
-		ret = self:actFromNet(input)
+		ret = self:actRandom( input )
 	end
 
 	-- anneal the epsilon a little
 	self.ep = self.ep - 0.000001
 	
+	print( "######################## END ###########################")
+		
 	-- return choosen action
 	return ret
+end
+
+function dqa:actThompson( input )
+	if self.gpu then
+		x = torch.CudaTensor(self.number_of_actions):zero()
+	else
+		x = torch.Tensor(self.number_of_actions):zero()
+	end
+	
+	print("############## ACT USING THOMPSON SAMPLING ##############")
+	for i=1,self.thompson_samples do
+		local action_values = self:forward( input )
+		x = x + action_values
+	end
+	
+	-- find maximum output and note its index and value
+  	local maxval = x[1]
+  	local max_index = 1
+  	for i = 1, self.number_of_actions do
+  		if x[i] > maxval then
+  			maxval = x[i]
+  			max_index = i
+  		end
+  	end
+  	print( x )
+	print( "######################## END ###########################")
+  	
+  	return torch.Tensor(1):fill(max_index)
+end
+
+function dqa:actOnInput( input )
+
+	print( "#### nsteps = " .. tostring(self.nsteps) .. " ####" )
+	
+	local ret = nil
+	
+	if self.nsteps < self.learning_steps_burnin then
+		ret = self:actRandom( input )
+	else
+		if self.use_thompson then
+			ret = self:actThompson( input )
+		else
+			ret = self:actEGreedy( input )
+		end
+	end
+	
+	self.nsteps = self.nsteps + 1
+	return ret
+	
 end

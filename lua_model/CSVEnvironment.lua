@@ -3,6 +3,7 @@ Copyright (c)
 ]]--
 
 require('torch')
+require('cutorch')
 require('csvigo')
 
 local csvenv = torch.class('CSVEnvironment')
@@ -51,7 +52,7 @@ function csvenv:__init(args)
 	if args.time_interval ~= nil then
 	self.time_interval = args.time_interval
 	else
-	self.time_interval = 7200
+	self.time_interval = 3600
 	end
 
 	--- current value buffer
@@ -70,12 +71,32 @@ function csvenv:__init(args)
 	--- print(self.csv)
 
 	--- initial portfolio
+	self.initial_btc = 0
+	self.initial_euro = 60
+	
+	-- current protfolio
 	self.current_btc = 0
-	self.current_euro = 60
+	self.current_euro = 0
+	
+	--- current timestamp we're in
+	self.current_timestamp = 0
 	
 	--- current BTC value (in euro?)
 	self.current_btc_val = 0
 	self.prev_btc_val = 0
+	
+	--- should we use reporting ?
+	self.use_reporting = true --args.use_reporting
+	if self.use_reporting then
+		self.report_csv = csvigo.File("report.csv", "w")
+		self.report_csv:write( {"timestamp", "current_btc_price", "action_taken"} )
+	end
+	
+	--- GPU ?
+	self.gpu = false
+	
+	-- Init
+	self:reset()
 	
 end
 
@@ -87,16 +108,26 @@ end
 
 function csvenv:sell()
 	if self.current_btc > 0 then
-	self.current_euro = self.current_btc * self.current_btc_val
-	self.current_btc = 0
+		self.current_euro = (self.current_btc * self.current_btc_val)
+		self.current_euro = self.current_euro - self:getFees( self.current_euro )
+		self.current_btc = 0
 	end
 end
 
 function csvenv:buy()
 	if self.current_euro > 0 then
-	self.current_btc = self.current_euro / self.current_btc_val
-	self.current_euro = 0
+		self.current_btc = self.current_euro / self.current_btc_val
+		self.current_btc = self.current_btc - self:getFees( self.current_btc )
+		self.current_euro = 0
 	end
+end
+
+function csvenv:reportAction( action )
+	self.report_csv:write( { self.current_timestamp, self.current_btc_val, action } )
+end
+
+function csvenv:getFees( value )
+	return (0.3/100) * value
 end
 
 -- returns reward AND next state given action
@@ -105,6 +136,7 @@ function csvenv:act( action )
 	print("Current BTC price: " .. tostring( self.current_btc_val ))
 	
 	local prevPortfolioValue = self:portfolioValue()
+	local prevBtcVal = self.current_btc_val
 	
 	print( "Portfolio before: " )
 	print( self.current_euro )
@@ -147,19 +179,20 @@ function csvenv:act( action )
 	local nextState = self:getNextState()
 	
 	local curPortfolioValue = self:portfolioValue()
+	local curBtcVal = self.current_btc_val
 	
 	print( "previous portfolio value: " .. tostring( prevPortfolioValue ))
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
 	local pfReturn = (curPortfolioValue - prevPortfolioValue) / prevPortfolioValue
-	local btcReturn = (self.current_btc_val - self.prev_btc_val) / self.prev_btc_val
+	local btcReturn = (curBtcVal - prevBtcVal) / prevBtcVal
 	
 	print( "pfReturn: " .. tostring(pfReturn) )
 	print( "btcReturn: " .. tostring(btcReturn) )
 	
-	if impossible_move == true then
-		reward = 0
-	else
+	--if impossible_move == true then
+	--	reward = 0
+	--else
 		-- reward = pfReturn
 		if btcReturn > 0 then
 			if pfReturn <= 0 then
@@ -174,7 +207,12 @@ function csvenv:act( action )
 				reward = pfReturn
 			end
 		end
+		
+	if action_idx ~= 0 then
+		reward = 10 * reward
 	end
+	
+	--end
 		-- if action_idx == 2 and reward > 0 then
 		--	reward = reward * 2
 		-- end
@@ -182,7 +220,26 @@ function csvenv:act( action )
 	--	reward = -1
 	--end
 	
+	-- EXP
+	-- reward = reward * 1000
+	--
+	
+	-- Penalty for doing shit
+	if impossible_move then
+		-- reward = reward - 0.01
+	end
+	--
+	
 	print("---------------------")
+	
+	-- reporting
+	if self.use_reporting then
+		if impossible_move == false then
+			self:reportAction( action_idx )
+		end
+	end
+	
+	--
 	
 	return reward, nextState
 
@@ -217,58 +274,76 @@ function csvenv:testNewModel(x)
 	print( popo )
 end
 
-function csvenv:getNextState()
+function csvenv:reset()
+	self.csv_offset = 1
+	self.current_timestamp = 0
+	self.current_btc_val = 0
+	self.prev_btc_val = 0
+	self.last_time_value = 0
+	self.current_btc = self.initial_btc
+	self.current_euro = self.initial_euro
+	for i,v in ipairs(self.buffer) do table.remove(self.buffer, i) end
+	popo = nil
+	while popo == nil do
+		popo = self:getNextValue()
+	end
+end
+
+function csvenv:getNextValue()
+
 	local currow = self.csv[ self.csv_offset ]
+	
+	if currow == nil then
+		-- print("nil1 " .. tostring(self.csv_offset) )
+		self:reset()
+		currow = self.csv[ self.csv_offset ]
+	end
+	
 	local timeval = tonumber(currow[ 1 ])
 	while timeval - self.last_time_value < self.time_interval do
 		currow = self.csv[ self.csv_offset ]
+		
+		if currow == nil then
+			-- print("nil2")
+			self:reset()
+			currow = self.csv[ self.csv_offset ]
+		end
+		
 		timeval = tonumber(currow[ 1 ])
 		self.csv_offset = self.csv_offset + 1
+		
 	end
+	
+	self.last_time_value = timeval
 	local val = tonumber(currow[2])
 	
+	self.current_timestamp = timeval
 	self.prev_btc_val = self.current_btc_val
 	self.current_btc_val = val
 	
-	--- print(timeval)
-	self.last_time_value = timeval
+	return val
 	
-	self.cur_portfolio_value = self:portfolioValue()
-	
-	-- append value
-	if #self.buffer >= self.stock_chunk_len then
-		table.remove( self.buffer, 1 )
-		table.remove( self.portfolio_buffer, 1 )
-		table.remove( self.portfolio_eur, 1 )
-		table.remove( self.portfolio_btc, 1 )
-	end 
-	table.insert( self.buffer, val )
-	local pfval = self:portfolioValue()
-	table.insert( self.portfolio_buffer, pfval )
-	table.insert( self.portfolio_eur, self.current_euro )
-	table.insert( self.portfolio_btc, self.current_btc )
-	
-	--- print( #self.buffer ) 
-	--- return torch.Tensor( {ret} ):transpose(1,2)
-	if #self.buffer < self.stock_chunk_len then
-		return nil
-	else
-		-- return torch.Tensor( {self.buffer} ):transpose(1,2)
-		-- local ret = torch.Tensor( {self.buffer, self.portfolio_buffer} ):transpose(1,2)
-		
-		local normalizedHistory = ( torch.Tensor( {self.buffer} ) )
-		normalizedHistory = normalizeRows( normalizedHistory )
-		-- print( "normalizedHistory: " .. tostring( normalizedHistory ) )
-		 --print( self:getPortfolioState() )
-		local ret = {normalizedHistory:transpose(1,2), self:getPortfolioState() }
-		-- local ret = torch.Tensor( {self.buffer, self.buffer, self.buffer} )
-		-- print( "ret: \n" )
-		-- print( ret )
-		
-		return ret
-		-- print(ret:transpose(1,2))
-		-- return ret:transpose(1,2)
-		--print(torch.std(ret,2,true))
-		--return ret
+end
+
+function csvenv:getNextState()
+
+	while #self.buffer < self.stock_chunk_len do
+		local val = self:getNextValue()
+		table.insert( self.buffer, val )
 	end
+	
+	local normalizedHistory = ( torch.Tensor( {self.buffer} ) )
+	normalizedHistory = normalizeRows( normalizedHistory )
+
+	local ret = nil
+	if self.gpu then
+		ret = {normalizedHistory:transpose(1,2):cuda(), self:getPortfolioState():cuda() }
+	else
+		ret = {normalizedHistory:transpose(1,2), self:getPortfolioState() }
+	end
+	
+	table.remove( self.buffer, 1 )
+	
+	return ret
+
 end

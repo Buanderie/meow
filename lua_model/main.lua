@@ -24,14 +24,6 @@ local a = DeepQAgent{agent_net=netFile}
 -- Create an environment
 local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
 
-for i=1,257 do
-ret2 = csvenv:getNextState()
--- print(ret2)
-end
-
--- test = torch.randn( a.stock_input_len, 1 );
---- print(test)
-
 timer = torch.Timer()
 time = {}
 value = {}
@@ -40,14 +32,16 @@ nsteps = 0
 
 -- initial state
 local state = csvenv:getNextState()
-for i=1,10000 do
-	-- coucou = torch.Tensor(1)
-	-- print( coucou[1] )
-	-- ret2 = csvenv:getNextState()
-	-- print(ret2:size())
-	---ret = a:chooseAction(csvenv:getNextState())
-	-- print(ret)
-	-- print(a:actOnInput( csvenv:getNextState() ))
+print("init_state " .. tostring(state))
+local nsteps = 1
+
+-- test
+	-- a:actThompson( state )
+	-- exit(0)
+--
+
+while true do
+
 	local action = a:actOnInput( state )
 	local reward, nextState = csvenv:act( action )
 	
@@ -60,17 +54,35 @@ for i=1,10000 do
 	print( "Reward: " .. tostring(reward ) )
 	nsteps = nsteps + 1
 	avgReward = avgReward + ( reward - avgReward ) / nsteps
+	
+	--[[
+	if #value >= 100 then
+		table.remove( value, 1 )
+		table.remove( time, 1 )
+	end 
+	]]--
+
+	if nsteps == 20000 then
+		csvenv.current_btc = 0
+		csvenv.current_euro = csvenv.initial_euro
+	end
+	
+	if nsteps > 20000 then	
 	table.insert(value, avgReward)
-	table.insert(time, timer:time().real)
-   
+	-- table.insert(time, timer:time().real)
+   	table.insert( time, nsteps )
+   	end
+   	
 	-- plot reward
-	if i % 10 == 0 then
+	if nsteps % 10 == 0 and nsteps > 20000 then
 	cgtime = torch.Tensor(time)
 	cgevaluations = torch.Tensor(value)
-	--gnuplot.figure(1)
-	--gnuplot.title('Average reward over time')
-	--gnuplot.plot(cgtime, cgevaluations)
-	a:saveNetwork()
+	gnuplot.figure(1)
+	gnuplot.title('Average reward over time')
+	gnuplot.plot(cgtime, cgevaluations)
+	
 	end
+	
+	nsteps = nsteps + 1
 	
 end
