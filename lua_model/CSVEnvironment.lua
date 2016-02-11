@@ -3,7 +3,6 @@ Copyright (c)
 ]]--
 
 require('torch')
-require('cutorch')
 require('csvigo')
 
 local csvenv = torch.class('CSVEnvironment')
@@ -71,12 +70,15 @@ function csvenv:__init(args)
 	--- print(self.csv)
 
 	--- initial portfolio
-	self.initial_btc = 0
-	self.initial_euro = 60
+	self.initial_btc = 0.11
+	self.initial_euro = 0
 	
 	-- current protfolio
 	self.current_btc = 0
 	self.current_euro = 0
+	
+	--- other portfolio info
+	self.value_at_entry = 0
 	
 	--- current timestamp we're in
 	self.current_timestamp = 0
@@ -84,6 +86,7 @@ function csvenv:__init(args)
 	--- current BTC value (in euro?)
 	self.current_btc_val = 0
 	self.prev_btc_val = 0
+	self.value_at_entry = 0.0000001
 	
 	--- should we use reporting ?
 	self.use_reporting = true --args.use_reporting
@@ -111,6 +114,7 @@ function csvenv:sell()
 		self.current_euro = (self.current_btc * self.current_btc_val)
 		self.current_euro = self.current_euro - self:getFees( self.current_euro )
 		self.current_btc = 0
+		self.value_at_entry = self.current_btc_val
 	end
 end
 
@@ -119,6 +123,7 @@ function csvenv:buy()
 		self.current_btc = self.current_euro / self.current_btc_val
 		self.current_btc = self.current_btc - self:getFees( self.current_btc )
 		self.current_euro = 0
+		self.value_at_entry = self.current_btc_val
 	end
 end
 
@@ -127,13 +132,20 @@ function csvenv:reportAction( action )
 end
 
 function csvenv:getFees( value )
-	return (0.3/100) * value
+	print( "fees: " .. tostring( (0.3/100) * value ) )
+	return (0.03/100) * value
 end
 
 -- returns reward AND next state given action
 function csvenv:act( action )
 	
-	print("Current BTC price: " .. tostring( self.current_btc_val ))
+	local coucou = ((math.max(self.value_at_entry, 0.0000001) -  self.current_btc_val) /  self.current_btc_val) / 100
+	print("coucou: " .. tostring(coucou ) ) 
+	print("Previous BTC price: " .. tostring( self.current_btc_val ))
+	
+	local vEntry = self.value_at_entry
+	local prevRet = (self.current_btc_val - vEntry) / vEntry
+	print( "Previous return: " .. tostring(prevRet) )
 	
 	local prevPortfolioValue = self:portfolioValue()
 	local prevBtcVal = self.current_btc_val
@@ -178,6 +190,10 @@ function csvenv:act( action )
 	
 	local nextState = self:getNextState()
 	
+	local curRet = (self.current_btc_val - vEntry) / vEntry
+	print( "Current BTC price: " .. tostring( self.current_btc_val ))
+	print( "Current return: " .. tostring(curRet) )
+	
 	local curPortfolioValue = self:portfolioValue()
 	local curBtcVal = self.current_btc_val
 	
@@ -185,8 +201,10 @@ function csvenv:act( action )
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
 	local pfReturn = (curPortfolioValue - prevPortfolioValue) / prevPortfolioValue
+	-- local pfReturn = curRet - prevRet
 	local btcReturn = (curBtcVal - prevBtcVal) / prevBtcVal
 	
+	--[[
 	print( "pfReturn: " .. tostring(pfReturn) )
 	print( "btcReturn: " .. tostring(btcReturn) )
 	
@@ -194,6 +212,7 @@ function csvenv:act( action )
 	--	reward = 0
 	--else
 		-- reward = pfReturn
+		
 		if btcReturn > 0 then
 			if pfReturn <= 0 then
 				reward = -btcReturn
@@ -211,7 +230,22 @@ function csvenv:act( action )
 	if action_idx ~= 0 then
 		reward = 10 * reward
 	end
+	]]--
 	
+	if btcReturn > 0 then
+	    if pfReturn > 0 then
+	        reward = 5 * math.abs(pfReturn)
+	    else
+	        reward = -1 * math.abs(btcReturn)
+	    end
+	else
+	    if pfReturn >= 0 then
+	        reward = 1 * math.abs(btcReturn)
+	    else
+	        reward = -5 * math.abs(pfReturn);
+	    end
+	end
+
 	--end
 		-- if action_idx == 2 and reward > 0 then
 		--	reward = reward * 2
@@ -226,10 +260,11 @@ function csvenv:act( action )
 	
 	-- Penalty for doing shit
 	if impossible_move then
-		-- reward = reward - 0.01
+		reward = reward - 0.1
 	end
 	--
 	
+	print("REWARD: " .. tostring( reward ) )
 	print("---------------------")
 	
 	-- reporting
@@ -241,15 +276,16 @@ function csvenv:act( action )
 	
 	--
 	
-	return reward, nextState
+	return reward * 2, nextState
 
 end
 
 function csvenv:getPortfolioState()
-	local ret = torch.Tensor( 1, 2 );
+	local ret = torch.Tensor( 1, 3 );
 	ret[1][1] = self.current_euro / self:portfolioValue()
 	ret[1][2] = self.current_btc / self:portfolioValue()
-	return ret:reshape(2)
+	ret[1][3] = ((math.max(self.value_at_entry, 0.0000001) -  self.current_btc_val) /  self.current_btc_val) / 10
+	return ret:reshape(3)
 end
 
 function csvenv:testNewModel(x)
@@ -282,6 +318,7 @@ function csvenv:reset()
 	self.last_time_value = 0
 	self.current_btc = self.initial_btc
 	self.current_euro = self.initial_euro
+	
 	for i,v in ipairs(self.buffer) do table.remove(self.buffer, i) end
 	popo = nil
 	while popo == nil do

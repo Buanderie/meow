@@ -6,8 +6,8 @@ require('torch')
 require('nn')
 require('optim')
 
-require('cutorch')
-require('cunn')
+-- require('cutorch')
+-- require('cunn')
 
 function table.length(T)
   local count = 0
@@ -83,8 +83,9 @@ function dqa:initNeuralNet()
 	self.net:add(nn.ReLU())
 	]]--
 	
-	model1 = nn.Sequential()
 	
+	model1 = nn.Sequential()
+	--[[
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.ReLU() )
 	model1:add( nn.TemporalMaxPooling(2) )
@@ -100,8 +101,8 @@ function dqa:initNeuralNet()
 	if self.use_thompson then
 	model1:add( nn.Dropout() )
 	end
-
-	-- model1:add( nn.Identity() )
+    ]]--
+	model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
     
@@ -111,20 +112,26 @@ function dqa:initNeuralNet()
 	size1 = size1[#size1]
 	-- print( "size1:" )
 	-- print( size1 )
-	local size2 = model2:forward( torch.rand( 2 ) ):size()[1]
+	local size2 = model2:forward( torch.rand( 3 ) ):size()[1]
 	local inSize = size1 + size2
 	-- print( inSize )
 	
 	model3 = nn.Sequential()
 	model3:add( nn.Linear( inSize, inSize * 2 ) )
-	model3:add( nn.ReLU() )
 	if self.use_thompson then
 		model3:add( nn.Dropout() )
 	end
+	model3:add( nn.ReLU() )
+	
 	model3:add( nn.Linear( inSize * 2, inSize ) )
+	if self.use_thompson then
+		model3:add( nn.Dropout() )
+	end
 	model3:add( nn.ReLU() )
 	model3:add( nn.Linear( inSize, self.number_of_actions ) )
-	-- model3:add( nn.SoftMax() )
+	if self.use_thompson then
+		model3:add( nn.Dropout() )
+	end
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
 	
@@ -154,8 +161,12 @@ function dqa:initNeuralNet()
 	
 end
 
-function dqa:saveNetwork()
-	torch.save('net.bin', self.net)
+function dqa:saveNetwork( networkPath )
+	if networkPath == nil then
+		torch.save('net.bin', self.net)
+	else
+		torch.save( networkPath, self.net )
+	end
 end
 
 function dqa:loadNetwork()
@@ -205,20 +216,21 @@ function dqa:__init(args)
 	
 	--- Training
 	self.nsteps = 1
-	self.learning_steps_burnin = 10000
+	self.learning_steps_burnin = 5000
 	
 	--- Training batch size
-	self.training_batch_size = 250
+	self.training_batch_size = 100
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
-   	self.coefL1 = 0.0
+   	self.coefL1 = 0.001
    	self.coefL2 = 0.001
+   	self.currentLoss = 123456789
    	
 	--- Gamma 
 	-- gamma is a crucial parameter that controls how much plan-ahead the agent does. In [0,1]
    	-- Determines the amount of weight placed on the utility of the state resulting from an action.
-   	self.gamma = 0.9
+   	self.gamma = 0.95
    	
 	--- neural net
 	--- initialized to random weights if no params
@@ -270,6 +282,7 @@ function dqa:forward( input, net )
 end
 
 function dqa:policy( input, net )
+
 	local action_values = self:forward( input, net )
 	local maxval = action_values[1]
   	local max_index = 1
@@ -306,11 +319,11 @@ function dqa:trainFromMemory()
 	
 	if self.gpu then
 		h_inputs = torch.CudaTensor(self.training_batch_size, self.stock_input_len, 1 )
-		p_inputs = torch.CudaTensor(self.training_batch_size, 2 )
+		p_inputs = torch.CudaTensor(self.training_batch_size, 3 )
 		targets = torch.CudaTensor(self.training_batch_size, self.number_of_actions, 1 )
 	else
 		h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 1 )
-		p_inputs = torch.Tensor(self.training_batch_size, 2 )
+		p_inputs = torch.Tensor(self.training_batch_size, 3 )
 		targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
 	end
 	
@@ -421,6 +434,7 @@ function dqa:trainFromMemory()
          
         _,fs = optim.sgd(feval, self.parameters, sgdState)
         print( "Current loss: " .. tostring(fs[1] ) )
+        self.currentLoss = fs[1]
         -- sleep(1)
         
         -- increment number of learning steps
