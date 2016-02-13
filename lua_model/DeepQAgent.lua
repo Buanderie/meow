@@ -6,8 +6,8 @@ require('torch')
 require('nn')
 require('optim')
 
--- require('cutorch')
--- require('cunn')
+require('cutorch')
+require('cunn')
 
 function table.length(T)
   local count = 0
@@ -33,12 +33,12 @@ function dqa:initNeuralNet()
 	for i = 1,3 do -- I need to generate 3 sequential structures
     	local model = nn.Sequential()
     	model:add(nn.TemporalConvolution(1,16,5))
-    	model:add(nn.ReLU())
+    	model:add(nn.Tanh())
     	model:add(nn.TemporalMaxPooling(2))
     	model:add(nn.TemporalConvolution(16,16,5))
-    	model:add(nn.ReLU())
+    	model:add(nn.Tanh())
     	model:add(nn.TemporalMaxPooling(2))
-    	model:add(nn.ReLU())
+    	model:add(nn.Tanh())
     	parconv:add(model) -- add each to the main model
 	end
 	
@@ -51,22 +51,22 @@ function dqa:initNeuralNet()
 	
 	self.net:add( nn.Reshape( viewSize ) )
 	
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(viewSize, viewSize/2))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(viewSize/2, 128))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(128, self.number_of_actions))
 	]]--
 	
 	--self.net:add(nn.TemporalConvolution(
 	--[[
 	self.net:add(nn.TemporalConvolution(3,16,5,1))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.TemporalMaxPooling(2))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.TemporalConvolution(16,32,5,1))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.TemporalMaxPooling(2))
 	
 	local testInput = torch.randn( self.stock_input_len, 3 );
@@ -74,35 +74,37 @@ function dqa:initNeuralNet()
 	local viewSize = testOutput:size()[1] * testOutput:size()[2]
 	
 	self.net:add(nn.View(viewSize))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(viewSize, viewSize/2))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(viewSize/2, 128))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(128, self.number_of_actions))		
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	]]--
 	
 	
 	model1 = nn.Sequential()
+	
 	--[[
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
-	model1:add( nn.ReLU() )
+	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
 	if self.use_thompson then
-	model1:add( nn.Dropout() )
+	model1:add( nn.Dropout(0.1) )
 	end
 	
 	model1:add( nn.TemporalConvolution(32,16,5,1) )
-	model1:add( nn.ReLU() )
+	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
 	if self.use_thompson then
-	model1:add( nn.Dropout() )
+	model1:add( nn.Dropout(0.1) )
 	end
     ]]--
-	model1:add( nn.Identity() )
+    
+	-- model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
     
@@ -117,21 +119,22 @@ function dqa:initNeuralNet()
 	-- print( inSize )
 	
 	model3 = nn.Sequential()
-	model3:add( nn.Linear( inSize, inSize * 2 ) )
+	model3:add( nn.Linear( inSize, inSize * 4 ) )
 	if self.use_thompson then
-		model3:add( nn.Dropout() )
+		model3:add( nn.Dropout(0.1) )
 	end
-	model3:add( nn.ReLU() )
+	model3:add( nn.Tanh() )
 	
-	model3:add( nn.Linear( inSize * 2, inSize ) )
+	model3:add( nn.Linear( inSize * 4, inSize * 2 ) )
 	if self.use_thompson then
-		model3:add( nn.Dropout() )
+		model3:add( nn.Dropout(0.1) )
 	end
-	model3:add( nn.ReLU() )
-	model3:add( nn.Linear( inSize, self.number_of_actions ) )
+	model3:add( nn.Tanh() )
+	model3:add( nn.Linear( inSize * 2, self.number_of_actions ) )
 	if self.use_thompson then
-		model3:add( nn.Dropout() )
+		model3:add( nn.Dropout(0.1) )
 	end
+	model3:add( nn.Tanh() )
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
 	
@@ -145,11 +148,11 @@ function dqa:initNeuralNet()
 	local viewSize = self.stock_input_len * 3
 	self.net:add( nn.Reshape( self.stock_input_len * 3 ) )
 	self.net:add(nn.Linear(viewSize, viewSize/2))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(viewSize/2, 128))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	self.net:add(nn.Linear(128, self.number_of_actions))
-	self.net:add(nn.ReLU())
+	self.net:add(nn.Tanh())
 	]]--
 	
 	self.criterion = nn.MSECriterion()
@@ -184,7 +187,7 @@ function dqa:__init(args)
 	
 	--- agent model
 	--- 3 actions : buy one, sell one, none
-	self.number_of_actions = 3
+	self.number_of_actions = 2
 	
 	--- data input
 	self.stock_input_len = 24
@@ -206,7 +209,7 @@ function dqa:__init(args)
 	self.thompson_samples =	1
 	
 	--- enable/disable learning
-	self.learn =		true
+	self.learn =			true
 	
 	--- replay memory
 	--- max size of replay memory
@@ -214,23 +217,24 @@ function dqa:__init(args)
 	--- actual replay memory
 	self.replay_memory = {}
 	
-	--- Training
-	self.nsteps = 1
-	self.learning_steps_burnin = 5000
 	
 	--- Training batch size
-	self.training_batch_size = 100
-   	self.learning_rate = 0.1
+	self.training_batch_size = 500
+   	self.learning_rate = 0.01
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
    	self.coefL1 = 0.001
    	self.coefL2 = 0.001
-   	self.currentLoss = 123456789
-   	
+   	self.currentLoss = 1
+
+	--- Training
+	self.nsteps = 1
+	self.learning_steps_burnin = 2 * self.training_batch_size
+	   	
 	--- Gamma 
 	-- gamma is a crucial parameter that controls how much plan-ahead the agent does. In [0,1]
    	-- Determines the amount of weight placed on the utility of the state resulting from an action.
-   	self.gamma = 0.95
+   	self.gamma = 0.99
    	
 	--- neural net
 	--- initialized to random weights if no params
@@ -261,7 +265,7 @@ end
 
 function dqa:actRandom( input )
 	t = torch.Tensor(1)
-	t:random(1,3)
+	t:random(1,self.number_of_actions)
 	return t
 end
 
@@ -301,6 +305,21 @@ end
 function dqa:actFromNet( input )
 	local ret = self:policy( input )	
 	return torch.Tensor(1):fill(ret.action)
+end
+
+function dqa:dumpMiniBatch( input, target )
+	print( "%%% MINIBATCH DUMP %%%\n" )
+	-- for each batch element
+	for i = 1, self.training_batch_size do
+		print( "---- i = " .. tostring(i) )
+		print( "INPUT_1:\n" )
+		print( input[1][i] )
+		print( "INPUT_2:\n" )
+		print( input[2][i] )
+		print( "TARGET:\n" )
+		print( target[i] )
+	end
+	print( "%%%%%%%%%%%%%%%%%%%%%%%\n" )
 end
 
 function dqa:insertToMemory( tuple )	
@@ -345,6 +364,8 @@ function dqa:trainFromMemory()
 	end
 	]]--
 	
+
+	
 	for k = 1, self.training_batch_size do
 		--- Choose tuple randomly from replay memory
 		local sampleIdx = math.random( 1, table.length(self.replay_memory))
@@ -361,7 +382,7 @@ function dqa:trainFromMemory()
         local x = sample[1];
    
    		-- compute best action for the new state S1
-        local best_action = self:policy(sample[4], self.target_net);
+        local best_action = self:policy(sample[4], self.net);
         
         --[[ get current action output values
    				we want to make the target outputs the same as the actual outputs
@@ -381,15 +402,23 @@ function dqa:trainFromMemory()
 		p_inputs[k] = x[2]:clone()
 		targets[k] = all_outputs:clone();
 		-- print( sample[2][1] )
-		targets[k][ sample[2][1] ] = sample[3] + self.gamma * best_action.value; 
+		
+		--[[
+		print( "TARGET_DEBUG:" )
+		print( "sample[3]=" .. tostring( sample[3] ) )
+		print( "self.gamme=" .. tostring( self.gamma ) )
+		print( "best_action.value=" .. tostring( best_action.value ) )
+		print( "targets[k][ " .. tostring(sample[2][1]) .. " ]=" .. tostring( sample[3] + self.gamma * best_action.value ) )
+		]]--
+		targets[k][ sample[2][1] ] = sample[3] + self.gamma * best_action.value
 	end
 	-- Concatenate all this shit
 	inputs = { h_inputs, p_inputs }
-	
+				
 		--- EVAL CLOSURE STARTS
 		-- create training function to give to optim.sgd
 		local feval = function(x)
-	     collectgarbage()
+	     -- collectgarbage()
 
 	     -- get new network parameters
 	     if x ~= self.parameters then
@@ -435,11 +464,19 @@ function dqa:trainFromMemory()
         _,fs = optim.sgd(feval, self.parameters, sgdState)
         print( "Current loss: " .. tostring(fs[1] ) )
         self.currentLoss = fs[1]
+        
+        if self.currentLoss > 10 then
+        	self:dumpMiniBatch( inputs, targets ) 
+        	exit()
+        end
+        
         -- sleep(1)
         
         -- increment number of learning steps
 		self.iter = self.iter + 1
-        
+		
+		-- release memory and sh*t
+        -- collectgarbage()
 end
 
 function dqa:train( stepTuple )

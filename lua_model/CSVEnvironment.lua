@@ -2,6 +2,8 @@
 Copyright (c) 
 ]]--
 
+require('cutorch')
+
 require('torch')
 require('csvigo')
 
@@ -114,7 +116,7 @@ function csvenv:sell()
 		self.current_euro = (self.current_btc * self.current_btc_val)
 		self.current_euro = self.current_euro - self:getFees( self.current_euro )
 		self.current_btc = 0
-		self.value_at_entry = self.current_btc_val
+		-- self.value_at_entry = self.current_btc_val
 	end
 end
 
@@ -143,13 +145,12 @@ function csvenv:act( action )
 	print("coucou: " .. tostring(coucou ) ) 
 	print("Previous BTC price: " .. tostring( self.current_btc_val ))
 	
-	local vEntry = self.value_at_entry
-	local prevRet = (self.current_btc_val - vEntry) / vEntry
-	print( "Previous return: " .. tostring(prevRet) )
-	
 	local prevPortfolioValue = self:portfolioValue()
 	local prevBtcVal = self.current_btc_val
 	
+	local prevValue = self.value_at_entry * self.current_btc
+	print("prevValue: " .. tostring(prevValue))
+		
 	print( "Portfolio before: " )
 	print( self.current_euro )
 	print( self.current_btc )
@@ -161,7 +162,7 @@ function csvenv:act( action )
 	else
 		action_idx = action
 	end
-	
+			
 	local reward = 0
 	local impossible_move = false
 	
@@ -183,17 +184,15 @@ function csvenv:act( action )
 	else
 		print("DO NOTHING")
 	end
-	
+			
 	print( "Portfolio after: " )
 	print( self.current_euro )
 	print( self.current_btc )
 	
 	local nextState = self:getNextState()
 	
-	local curRet = (self.current_btc_val - vEntry) / vEntry
 	print( "Current BTC price: " .. tostring( self.current_btc_val ))
-	print( "Current return: " .. tostring(curRet) )
-	
+
 	local curPortfolioValue = self:portfolioValue()
 	local curBtcVal = self.current_btc_val
 	
@@ -203,6 +202,9 @@ function csvenv:act( action )
 	local pfReturn = (curPortfolioValue - prevPortfolioValue) / prevPortfolioValue
 	-- local pfReturn = curRet - prevRet
 	local btcReturn = (curBtcVal - prevBtcVal) / prevBtcVal
+	
+	local curValue = self.current_euro
+	print("curValue: " .. tostring(curValue))
 	
 	--[[
 	print( "pfReturn: " .. tostring(pfReturn) )
@@ -232,18 +234,29 @@ function csvenv:act( action )
 	end
 	]]--
 	
+	local curRet = (curValue - prevValue)/prevValue
+
 	if btcReturn > 0 then
 	    if pfReturn > 0 then
 	        reward = 5 * math.abs(pfReturn)
 	    else
-	        reward = -1 * math.abs(btcReturn)
+	        reward = -2 * math.abs(btcReturn)
 	    end
 	else
 	    if pfReturn >= 0 then
 	        reward = 1 * math.abs(btcReturn)
 	    else
-	        reward = -5 * math.abs(pfReturn);
+	        reward = -10 * math.abs(pfReturn);
 	    end
+	end
+
+	if prevValue < 0.0001 then
+		curRet = 0
+	end
+	
+	-- reward = 0
+	if action_idx == 1  and not impossible_move then
+		reward = reward + 20 * curRet
 	end
 
 	--end
@@ -260,7 +273,7 @@ function csvenv:act( action )
 	
 	-- Penalty for doing shit
 	if impossible_move then
-		reward = reward - 0.1
+	 	-- reward = reward - 0.1
 	end
 	--
 	
@@ -276,15 +289,17 @@ function csvenv:act( action )
 	
 	--
 	
-	return reward * 2, nextState
+	return reward, nextState
 
 end
 
 function csvenv:getPortfolioState()
+	-- if( self.current_euro <= 0 and self.cu
 	local ret = torch.Tensor( 1, 3 );
 	ret[1][1] = self.current_euro / self:portfolioValue()
-	ret[1][2] = self.current_btc / self:portfolioValue()
-	ret[1][3] = ((math.max(self.value_at_entry, 0.0000001) -  self.current_btc_val) /  self.current_btc_val) / 10
+	ret[1][2] = (self.current_btc * self.current_btc_val) / self:portfolioValue()
+	-- ret[1][3] = (((self.value_at_entry) -  self.current_btc_val) /  self.current_btc_val)
+	ret[1][3] = 1
 	return ret:reshape(3)
 end
 

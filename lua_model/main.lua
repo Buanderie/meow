@@ -47,15 +47,25 @@ lfs.mkdir( experimentDir )
 local prevLoss = a.currentLoss
 --
 
-use_plot = false
+use_plot = true
 
 while true do
 
+	timer = torch.Timer()
 	local action = a:actOnInput( state )
-	local reward, nextState = csvenv:act( action )
+	local t = timer:time().real
+	print( "AGENT_actOnInput_t=" .. tostring(t) )
 	
+	timer = torch.Timer()
+	local reward, nextState = csvenv:act( action )
+	local t = timer:time().real
+	print( "ENV_act_t=" .. tostring(t) )
+	
+	timer = torch.Timer()
 	local stepTuple = { state, action, reward, nextState }
 	a:train( stepTuple )
+	local t = timer:time().real
+	print( "AGENT_train_t=" .. tostring(t) )
 	
 	-- prepare next step
 	state = nextState
@@ -76,10 +86,14 @@ while true do
 		csvenv.current_euro = csvenv.initial_euro
 	end
 	
-	if nsteps > 20000 then	
+	if nsteps > a.learning_steps_burnin then	
 	table.insert(value, avgReward)
 	-- table.insert(time, timer:time().real)
    	table.insert( time, nsteps )
+   	end
+   	
+   	if a.currentLoss > 10 then
+   	print("#####################SHIT#######################")
    	end
    	
    	-- save network from time to time
@@ -88,7 +102,7 @@ while true do
    		-- print( prevLoss )
    		-- print( curLoss )
    		-- print( tostring( prevLoss - curLoss ) )
-   		if prevLoss - curLoss >= 0.1 then
+   		if prevLoss - curLoss >= 0.01 then
    			local netPath = experimentDir .. "/net_" .. tostring(curLoss) .. ".net"
    			print( netPath )
    			a:saveNetwork( netPath )
@@ -98,13 +112,18 @@ while true do
    	
 	-- plot reward
 	if use_plot then
-		if nsteps % 10 == 0 and nsteps > 20000 then
+		if nsteps % 100 == 0 and nsteps > a.learning_steps_burnin then
 		cgtime = torch.Tensor(time)
 		cgevaluations = torch.Tensor(value)
 		gnuplot.figure(1)
 		gnuplot.title('Average reward over time')
 		gnuplot.plot(cgtime, cgevaluations)
 		end
+	end
+	
+	-- release emory from time to time
+	if nsteps % 500 == 0 then
+		collectgarbage()
 	end
 	
 	nsteps = nsteps + 1
