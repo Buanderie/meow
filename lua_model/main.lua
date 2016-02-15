@@ -32,6 +32,8 @@ local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
 timer = torch.Timer()
 time = {}
 value = {}
+losses = {}
+totReward = 0
 avgReward = 0
 nsteps = 0
 
@@ -72,14 +74,13 @@ while true do
 	
 	print( "Reward: " .. tostring(reward ) )
 	nsteps = nsteps + 1
-	avgReward = avgReward + ( reward - avgReward ) / nsteps
+	totReward = totReward + reward
+	avgReward = totReward / nsteps
 	
-	--[[
-	if #value >= 100 then
-		table.remove( value, 1 )
-		table.remove( time, 1 )
-	end 
-	]]--
+	--if #value >= 100 then
+	--	table.remove( value, 1 )
+	--	table.remove( time, 1 )
+	--end 
 
 	if nsteps == a.learning_steps_burnin then
 		csvenv.current_btc = csvenv.initial_btc
@@ -88,7 +89,7 @@ while true do
 	
 	if nsteps > a.learning_steps_burnin then	
 	table.insert(value, avgReward)
-	-- table.insert(time, timer:time().real)
+	table.insert( losses, a.currentLoss)
    	table.insert( time, nsteps )
    	end
    	
@@ -112,17 +113,20 @@ while true do
    	
 	-- plot reward
 	if use_plot then
-		if nsteps % 100 == 0 and nsteps > a.learning_steps_burnin then
+		if nsteps % 500 == 0 and nsteps > a.learning_steps_burnin then
 		cgtime = torch.Tensor(time)
 		cgevaluations = torch.Tensor(value)
 		gnuplot.figure(1)
 		gnuplot.title('Average reward over time')
 		gnuplot.plot(cgtime, cgevaluations)
+		gnuplot.figure(2)
+		gnuplot.title('loss over time')
+		gnuplot.plot(cgtime, torch.Tensor(losses))
 		end
 	end
 	
 	-- release emory from time to time
-	if nsteps % 500 == 0 then
+	if nsteps % 2000 == 0 then
 		collectgarbage()
 	end
 	

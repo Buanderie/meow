@@ -72,8 +72,9 @@ function csvenv:__init(args)
 	--- print(self.csv)
 
 	--- initial portfolio
-	self.initial_btc = 0.11
-	self.initial_euro = 0
+	self.initial_btc = 0
+	self.initial_euro = 1000
+	self.initial_portfolio_value = 0
 	
 	-- current protfolio
 	self.current_btc = 0
@@ -90,11 +91,15 @@ function csvenv:__init(args)
 	self.prev_btc_val = 0
 	self.value_at_entry = 0.0000001
 	
+	--- other analytics
+	self.returnHistory = {}
+	self.returnHistoryLength = 5
+	
 	--- should we use reporting ?
 	self.use_reporting = true --args.use_reporting
 	if self.use_reporting then
 		self.report_csv = csvigo.File("report.csv", "w")
-		self.report_csv:write( {"timestamp", "current_btc_price", "action_taken"} )
+		self.report_csv:write( {"timestamp", "portfolio_value", "current_btc_price", "action_taken"} )
 	end
 	
 	--- GPU ?
@@ -103,6 +108,39 @@ function csvenv:__init(args)
 	-- Init
 	self:reset()
 	
+end
+
+function csvenv:addReturn( val )
+	if #self.returnHistory >= self.returnHistoryLength then
+		table.remove( self.returnHistory, 1 )
+	end
+	table.insert( self.returnHistory, val )
+end
+
+function csvenv:getSharpeRatio()
+	if #self.returnHistory < self.returnHistoryLength then
+		return 0
+	else
+		local m = 0
+		-- compute mean
+		for i = 1, #self.returnHistory do
+			m = m + self.returnHistory[ i ]
+		end
+		m = m / #self.returnHistory
+		
+		local v = 0
+		-- compute variance
+		for i = 1, #self.returnHistory do
+			v = v + (self.returnHistory[i] - m)*(self.returnHistory[i] - m)
+		end
+		v = v / #self.returnHistory
+		
+		if v == 0 then
+			return 0
+		else
+			return (m / math.sqrt(v))
+		end
+	end
 end
 
 function csvenv:portfolioValue()
@@ -125,16 +163,16 @@ function csvenv:buy()
 		self.current_btc = self.current_euro / self.current_btc_val
 		self.current_btc = self.current_btc - self:getFees( self.current_btc )
 		self.current_euro = 0
-		self.value_at_entry = self.current_btc_val
+		self.value_at_entry = self.current_btc_val * self.current_btc
 	end
 end
 
 function csvenv:reportAction( action )
-	self.report_csv:write( { self.current_timestamp, self.current_btc_val, action } )
+	self.report_csv:write( { self.current_timestamp, self:portfolioValue(), self.current_btc_val, action } )
 end
 
 function csvenv:getFees( value )
-	print( "fees: " .. tostring( (0.3/100) * value ) )
+	print( "fees: " .. tostring( (0.03/100) * value ) )
 	return (0.03/100) * value
 end
 
@@ -148,9 +186,9 @@ function csvenv:act( action )
 	local prevPortfolioValue = self:portfolioValue()
 	local prevBtcVal = self.current_btc_val
 	
-	local prevValue = self.value_at_entry * self.current_btc
+	local prevValue = self.value_at_entry
 	print("prevValue: " .. tostring(prevValue))
-		
+
 	print( "Portfolio before: " )
 	print( self.current_euro )
 	print( self.current_btc )
@@ -181,10 +219,17 @@ function csvenv:act( action )
 		else
 			self:buy()
 		end
-	else
+	elseif action_idx == 3 then
 		print("DO NOTHING")
 	end
 			
+	local curValue =  self.current_euro
+	-- local curValue = self.initial_portfolio_value
+	
+	print("curValue: " .. tostring(curValue))
+	
+	local curRet = (curValue - prevValue)/prevValue
+		
 	print( "Portfolio after: " )
 	print( self.current_euro )
 	print( self.current_btc )
@@ -200,11 +245,10 @@ function csvenv:act( action )
 	print( "current portfolio value: " .. tostring( curPortfolioValue ))
 	
 	local pfReturn = (curPortfolioValue - prevPortfolioValue) / prevPortfolioValue
+	self:addReturn( pfReturn )
+		
 	-- local pfReturn = curRet - prevRet
 	local btcReturn = (curBtcVal - prevBtcVal) / prevBtcVal
-	
-	local curValue = self.current_euro
-	print("curValue: " .. tostring(curValue))
 	
 	--[[
 	print( "pfReturn: " .. tostring(pfReturn) )
@@ -234,31 +278,111 @@ function csvenv:act( action )
 	end
 	]]--
 	
-	local curRet = (curValue - prevValue)/prevValue
+	local sr = self:getSharpeRatio()
+	print( "Sharpe Ratio: " .. tostring(sr) )
+	
+	reward = 0
 
+	local compVal = pfReturn
+	
+	--[[
+	if action_idx == 1  and not impossible_move then
+		if compVal > 0 then
+			reward = 2
+		elseif compVal < 0 then
+			reward = -2
+		else
+			reward = 0
+		end
+	else
+	if compVal > 0 then
+			reward = 1
+		elseif compVal < 0 then
+			reward = -1
+		else
+			reward = 0
+		end
+	end
+	]]--
+	
+	
+		if compVal > 0 then
+			reward = 1
+		elseif compVal < 0 then
+			reward = -2
+		else
+			reward = 0
+		end
+		-- reward = pfReturn
+		
+		--if reward < 0 then
+		--	reward = reward * 100
+		--end
+		
+		if action_idx == 1  and not impossible_move then
+			if curRet > 0 then
+				reward = reward + 1
+			elseif curRet < 0 then
+				reward = reward - 2
+			end
+		end
+	
+	--[[
 	if btcReturn > 0 then
 	    if pfReturn > 0 then
-	        reward = 5 * math.abs(pfReturn)
+	        reward = pfReturn
 	    else
-	        reward = -2 * math.abs(btcReturn)
+	        reward = -pfReturn
 	    end
 	else
 	    if pfReturn >= 0 then
-	        reward = 1 * math.abs(btcReturn)
+	        reward = -btcReturn
 	    else
-	        reward = -10 * math.abs(pfReturn);
+	        reward = pfReturn
 	    end
 	end
-
-	if prevValue < 0.0001 then
-		curRet = 0
-	end
+	]]--
 	
-	-- reward = 0
+	--[[
 	if action_idx == 1  and not impossible_move then
-		reward = reward + 20 * curRet
+		if compVal > 0 then
+			reward = 100 * compVal
+		elseif compVal < 0 then
+			reward = -100 * compVal
+		else
+			reward = 0
+		end
 	end
-
+	]]--
+	
+	--[[
+	if reward < 0 then
+		reward = math.max( reward, -1 )
+	elseif reward > 0 then
+		reward = math.min( reward, 1 )
+	else
+		reward = 0
+	end
+	]]--
+	
+	--end
+	
+	--[[
+	if btcReturn > 0 then
+	    if pfReturn > 0 then
+	        reward = 1
+	    else
+	        reward = -1
+	    end
+	else
+	    if pfReturn >= 0 then
+	        reward = 1
+	    else
+	        reward = -1
+	    end
+	end
+	]]--
+	
 	--end
 		-- if action_idx == 2 and reward > 0 then
 		--	reward = reward * 2
@@ -299,7 +423,7 @@ function csvenv:getPortfolioState()
 	ret[1][1] = self.current_euro / self:portfolioValue()
 	ret[1][2] = (self.current_btc * self.current_btc_val) / self:portfolioValue()
 	-- ret[1][3] = (((self.value_at_entry) -  self.current_btc_val) /  self.current_btc_val)
-	ret[1][3] = 1
+	ret[1][3] = 0
 	return ret:reshape(3)
 end
 
@@ -339,6 +463,7 @@ function csvenv:reset()
 	while popo == nil do
 		popo = self:getNextValue()
 	end
+	-- self.initial_portfolio_value = self:portfolioValue()
 end
 
 function csvenv:getNextValue()
@@ -379,9 +504,17 @@ end
 
 function csvenv:getNextState()
 
+	local prevValue = 0
 	while #self.buffer < self.stock_chunk_len do
 		local val = self:getNextValue()
+		local pf  = self:portfolioValue()
+		local rval = 0
+		if val > 0 then
+			rval = (val-prevValue)/val
+		end
 		table.insert( self.buffer, val )
+		table.insert( self.portfolio_buffer, pf )
+		prevValue = val
 	end
 	
 	local normalizedHistory = ( torch.Tensor( {self.buffer} ) )
@@ -395,6 +528,7 @@ function csvenv:getNextState()
 	end
 	
 	table.remove( self.buffer, 1 )
+	table.remove( self.portfolio_buffer, 1 )
 	
 	return ret
 

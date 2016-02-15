@@ -85,14 +85,13 @@ function dqa:initNeuralNet()
 	
 	
 	model1 = nn.Sequential()
-	
-	--[[
+
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
 	if self.use_thompson then
-	model1:add( nn.Dropout(0.1) )
+	model1:add( nn.Dropout() )
 	end
 	
 	model1:add( nn.TemporalConvolution(32,16,5,1) )
@@ -100,11 +99,10 @@ function dqa:initNeuralNet()
 	model1:add( nn.TemporalMaxPooling(2) )
 	
 	if self.use_thompson then
-	model1:add( nn.Dropout(0.1) )
+	model1:add( nn.Dropout() )
 	end
-    ]]--
-    
-	-- model1:add( nn.Identity() )
+
+	model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
     
@@ -118,23 +116,26 @@ function dqa:initNeuralNet()
 	local inSize = size1 + size2
 	-- print( inSize )
 	
-	model3 = nn.Sequential()
-	model3:add( nn.Linear( inSize, inSize * 4 ) )
-	if self.use_thompson then
-		model3:add( nn.Dropout(0.1) )
-	end
-	model3:add( nn.Tanh() )
+	local n_hid = 128
 	
-	model3:add( nn.Linear( inSize * 4, inSize * 2 ) )
-	if self.use_thompson then
-		model3:add( nn.Dropout(0.1) )
-	end
+	model3 = nn.Sequential()
+	model3:add( nn.Linear( inSize, n_hid ) )
 	model3:add( nn.Tanh() )
-	model3:add( nn.Linear( inSize * 2, self.number_of_actions ) )
 	if self.use_thompson then
-		model3:add( nn.Dropout(0.1) )
+		model3:add( nn.Dropout() )
 	end
+	
+	model3:add( nn.Linear( n_hid, n_hid ) )
 	model3:add( nn.Tanh() )
+	if self.use_thompson then
+		model3:add( nn.Dropout() )
+	end
+	
+	model3:add( nn.Linear( n_hid, self.number_of_actions ) )
+	model3:add( nn.Tanh() )
+	if self.use_thompson then
+		model3:add( nn.Dropout() )
+	end
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
 	
@@ -187,7 +188,7 @@ function dqa:__init(args)
 	
 	--- agent model
 	--- 3 actions : buy one, sell one, none
-	self.number_of_actions = 2
+	self.number_of_actions = 3
 	
 	--- data input
 	self.stock_input_len = 24
@@ -202,7 +203,7 @@ function dqa:__init(args)
 	self.ep_start = 	0.9
 	self.ep	=			self.ep_start
 	self.ep_end =		0.000001
-	self.ep_end_t =		1000000
+	self.ep_end_t =		10000
 
 	--- Thompson Sampling
 	self.use_thompson =		true
@@ -219,8 +220,8 @@ function dqa:__init(args)
 	
 	
 	--- Training batch size
-	self.training_batch_size = 500
-   	self.learning_rate = 0.01
+	self.training_batch_size = 250
+   	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
    	self.coefL1 = 0.001
@@ -410,7 +411,8 @@ function dqa:trainFromMemory()
 		print( "best_action.value=" .. tostring( best_action.value ) )
 		print( "targets[k][ " .. tostring(sample[2][1]) .. " ]=" .. tostring( sample[3] + self.gamma * best_action.value ) )
 		]]--
-		targets[k][ sample[2][1] ] = sample[3] + self.gamma * best_action.value
+		
+		targets[k][ sample[2][1] ] = (sample[3] + self.gamma * best_action.value)
 	end
 	-- Concatenate all this shit
 	inputs = { h_inputs, p_inputs }
@@ -465,7 +467,7 @@ function dqa:trainFromMemory()
         print( "Current loss: " .. tostring(fs[1] ) )
         self.currentLoss = fs[1]
         
-        if self.currentLoss > 10 then
+        if self.currentLoss > 10000 then
         	self:dumpMiniBatch( inputs, targets ) 
         	exit()
         end
@@ -516,8 +518,8 @@ function dqa:actEGreedy( input )
 	end
 
 	-- anneal the epsilon a little
-	self.ep = self.ep - 0.000001
-	
+	self.ep = self.ep - 0.0001
+	print( "self.ep = " .. tostring(self.ep) )
 	print( "######################## END ###########################")
 		
 	-- return choosen action
