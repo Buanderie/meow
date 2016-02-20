@@ -86,6 +86,7 @@ function dqa:initNeuralNet()
 	
 	model1 = nn.Sequential()
 
+--[[
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
@@ -94,14 +95,14 @@ function dqa:initNeuralNet()
 	model1:add( nn.Dropout() )
 	end
 	
-	model1:add( nn.TemporalConvolution(32,16,5,1) )
+	model1:add( nn.TemporalConvolution(32,64,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
 	if self.use_thompson then
 	model1:add( nn.Dropout() )
 	end
-
+	]]--
 	model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
@@ -191,7 +192,7 @@ function dqa:__init(args)
 	self.number_of_actions = 3
 	
 	--- data input
-	self.stock_input_len = 24
+	self.stock_input_len = 12
 
 	--- current number of iteration	
 	self.iter = 0
@@ -254,12 +255,13 @@ function dqa:__init(args)
         -- self.tensor_type = torch.FloatTensor
 	end
 	
-	
 	-- Target network
 	self.target_net = args.target_q
     if not self.target_q then
     	self.target_net = self.net
     end
+    
+    self.evaluation_mode = false
     
     
 end
@@ -279,9 +281,21 @@ function dqa:forward( input, net )
 	
 	local ret
 	if net ~= nil then
+		if self.evaluation_mode == true then
+			net:evaluate()
+		end
 		ret = net:forward( input )
+		if self.evaluation_mode == true then
+			net:training()
+		end
 	else
+		if self.evaluation_mode == true then
+			self.net:evaluate()
+		end
 		ret = self.net:forward( input )
+		if self.evaluation_mode == true then
+			self.net:training()
+		end
 	end
 	return ret
 end
@@ -383,7 +397,9 @@ function dqa:trainFromMemory()
         local x = sample[1];
    
    		-- compute best action for the new state S1
-        local best_action = self:policy(sample[4], self.net);
+   		self.evaluation_mode = true
+        local best_action = self:policy(sample[4], self.net, false);
+        self.evaluation_mode = false
         
         --[[ get current action output values
    				we want to make the target outputs the same as the actual outputs
@@ -397,7 +413,10 @@ function dqa:trainFromMemory()
    		end
    		-- print( x )
    		
+   		self.net:evaluate()
    		local all_outputs = self.net:forward(x);
+   		self.net:training()
+   		
 		-- inputs[k] = x:clone();      	
 		h_inputs[k] = x[1]:clone()
 		p_inputs[k] = x[2]:clone()
@@ -431,7 +450,10 @@ function dqa:trainFromMemory()
 	     self.gradParameters:zero()
 
 	     -- evaluate function for complete mini batch
+	     --self.net:evaluate()
 	     local outputs = self.net:forward(inputs)
+	     --self.net:training()
+	     
 	     local f = self.criterion:forward(outputs, targets)
 
 	     -- estimate df/dW

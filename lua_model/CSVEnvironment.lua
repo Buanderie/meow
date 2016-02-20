@@ -39,7 +39,7 @@ function csvenv:__init(args)
 	if args.stock_chunk_len ~= nil then
 	self.stock_chunk_len = args.stock_chunk_len
 	else
-	self.stock_chunk_len = 24
+	self.stock_chunk_len = 12
 	end
 
 	--- CSV file we'll be using
@@ -309,7 +309,7 @@ function csvenv:act( action )
 		if compVal > 0 then
 			reward = 1
 		elseif compVal < 0 then
-			reward = -2
+			reward = -1
 		else
 			reward = 0
 		end
@@ -321,11 +321,13 @@ function csvenv:act( action )
 		
 		if action_idx == 1  and not impossible_move then
 			if curRet > 0 then
-				reward = reward + 1
+				reward = reward + 2
 			elseif curRet < 0 then
-				reward = reward - 2
+				reward = reward - 4
 			end
 		end
+		
+		-- reward = reward / 2
 	
 	--[[
 	if btcReturn > 0 then

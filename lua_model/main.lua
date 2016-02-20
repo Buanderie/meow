@@ -49,7 +49,7 @@ lfs.mkdir( experimentDir )
 local prevLoss = a.currentLoss
 --
 
-use_plot = true
+use_plot = false
 
 while true do
 
