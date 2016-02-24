@@ -143,7 +143,7 @@ for i=1, max_epochs do
 	end
 	
 	-- release emory from time to time
-	if nsteps % 2000 == 0 then
+	if nsteps % 500 == 0 then
 		collectgarbage()
 	end
 	

@@ -39,7 +39,7 @@ function csvenv:__init(args)
 	if args.stock_chunk_len ~= nil then
 	self.stock_chunk_len = args.stock_chunk_len
 	else
-	self.stock_chunk_len = 12
+	self.stock_chunk_len = 24
 	end
 
 	--- CSV file we'll be using
@@ -172,8 +172,8 @@ function csvenv:reportAction( action )
 end
 
 function csvenv:getFees( value )
-	print( "fees: " .. tostring( (0.03/100) * value ) )
-	return (0.03/100) * value
+	print( "fees: " .. tostring( (0.3/100) * value ) )
+	return (0.3/100) * value
 end
 
 -- returns reward AND next state given action
@@ -223,6 +223,9 @@ function csvenv:act( action )
 		print("DO NOTHING")
 	end
 			
+	print("curValue: " .. tostring(self.current_euro))
+	print("prevValue: " .. tostring(self.value_at_entry))
+	
 	local curValue =  self.current_euro
 	-- local curValue = self.initial_portfolio_value
 	
@@ -319,6 +322,7 @@ function csvenv:act( action )
 		--	reward = reward * 100
 		--end
 		
+		--[[
 		if action_idx == 1  and not impossible_move then
 			if curRet > 0 then
 				reward = reward + 2
@@ -326,6 +330,7 @@ function csvenv:act( action )
 				reward = reward - 4
 			end
 		end
+		]]--
 		
 		-- reward = reward / 2
 	
@@ -424,8 +429,14 @@ function csvenv:getPortfolioState()
 	local ret = torch.Tensor( 1, 3 );
 	ret[1][1] = self.current_euro / self:portfolioValue()
 	ret[1][2] = (self.current_btc * self.current_btc_val) / self:portfolioValue()
-	-- ret[1][3] = (((self.value_at_entry) -  self.current_btc_val) /  self.current_btc_val)
-	ret[1][3] = 0
+	local curReturn = 0
+	--if self.current_euro > 0 then
+		curReturn = ((self.current_euro - (self.value_at_entry)) /  self.value_at_entry)
+	--else
+	---	curReturn = 1
+	--end
+	ret[1][3] = curReturn
+	-- ret[1][3] = 0
 	return ret:reshape(3)
 end
 

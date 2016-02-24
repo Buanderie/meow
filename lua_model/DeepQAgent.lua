@@ -86,7 +86,6 @@ function dqa:initNeuralNet()
 	
 	model1 = nn.Sequential()
 
---[[
 	model1:add( nn.TemporalConvolution(1,32,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
@@ -102,7 +101,8 @@ function dqa:initNeuralNet()
 	if self.use_thompson then
 	model1:add( nn.Dropout() )
 	end
-	]]--
+
+
 	model1:add( nn.Identity() )
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
@@ -192,7 +192,7 @@ function dqa:__init(args)
 	self.number_of_actions = 3
 	
 	--- data input
-	self.stock_input_len = 12
+	self.stock_input_len = 24
 
 	--- current number of iteration	
 	self.iter = 0

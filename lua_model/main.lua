@@ -27,7 +27,7 @@ end
 local a = DeepQAgent{agent_net=netFile}
 
 -- Create an environment
-local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
+local csvenv = CSVEnvironment{csv_file="./out.csv"}
 
 timer = torch.Timer()
 time = {}
@@ -72,7 +72,6 @@ while true do
 	-- prepare next step
 	state = nextState
 	
-	print( "Reward: " .. tostring(reward ) )
 	nsteps = nsteps + 1
 	totReward = totReward + reward
 	avgReward = totReward / nsteps
@@ -82,7 +81,7 @@ while true do
 	--	table.remove( time, 1 )
 	--end 
 
-	if nsteps == a.learning_steps_burnin then
+	if nsteps == a.learning_steps_burnin or csvenv:portfolioValue() < 5 then
 		csvenv.current_btc = csvenv.initial_btc
 		csvenv.current_euro = csvenv.initial_euro
 	end
@@ -93,6 +92,8 @@ while true do
    	table.insert( time, nsteps )
    	end
    	
+   	print( "AVG_Reward: " .. tostring(avgReward ) )
+   		
    	if a.currentLoss > 10 then
    	print("#####################SHIT#######################")
    	end
