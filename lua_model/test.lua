@@ -1,97 +1,166 @@
+
+require('DeepQAgent')
+require('CSVEnvironment')
+
 require('torch')
-require('nn')
-require 'cunn'
+require('gnuplot')
+require('lfs')
+require('csvigo')
+require('socket')
 
-module = nn.JoinTable(2, 2)
+function file_exists(name)
+   local f=io.open(name,"r")
+   if f~=nil then io.close(f) return true else return false end
+end
 
-x = torch.randn(3, 1)
-y = torch.randn(3, 1)
+function getTimestamp()
+local tnf=os.date('%Y%m%d%H%M%S',os.time())
+return tostring(tnf)
+end
 
-mx = torch.randn(2, 3, 1)
-my = torch.randn(2, 3, 1)
+-- Grab arguments
+local experimentPath = arg[1]
+local netIdx = arg[2]
+local netPath = experimentPath .. "/net_" .. tostring(netIdx) .. ".net"
 
-print(module:forward{x, y})
-print(module:forward{mx, my})
+-- Create an agent
+local a = DeepQAgent{agent_net=netPath}
+a.evaluation_mode = true
+a.learn = false
+a.ep = 0
 
+-- Create an environment
+local csvenv = CSVEnvironment{csv_file="./dataset.csv"}
+
+timer = torch.Timer()
+time = {}
+value = {}
+losses = {}
+totReward = 0
+avgReward = 0
+nsteps = 0
+nreward = 1
+
+-- initial state
+local state = csvenv:getNextState()
+print("init_state " .. tostring(state))
+local nsteps = 1
+
+-- Create a new experiment
+-- local experimentName = "exp_" .. getTimestamp()
+-- local experimentDir = "./" .. experimentName
+-- lfs.mkdir( experimentDir )
+--
+
+-- Max experiment duration (in epochs)
+max_epochs = 100000
+
+-- Plotting
+use_plot = false
+
+-- Reporting
 --[[
-input = torch.rand(16, 3, 1) -- simulating 3 channels
-n_feature_maps = 10
-
-print(input:size())
-print(input)
-
-local parconv = nn.Parallel(2,1)
-	for i = 1,3 do -- I need to generate 3 sequential structures
-    	local model = nn.Sequential()
-    	model:add(nn.TemporalConvolution(1,16,5))
-    	model:add(nn.ReLU())
-    	model:add(nn.TemporalMaxPooling(2))
-    	model:add(nn.TemporalConvolution(16,16,5))
-    	model:add(nn.ReLU())
-    	model:add(nn.TemporalMaxPooling(2))
-    	model:add(nn.ReLU())
-    	parconv:add(model) -- add each to the main model
-	end
-	
-output = parconv:forward(input)
-print( output )
---------
-
-root = nn.Sequential()
-conv_part = nn.Identity()
-id_part = nn.Identity()
-mlp = nn.ParallelTable()
-mlp:add(conv_part)
-mlp:add(id_part)
-root:add(mlp)
-root:add(nn.JoinTable(1))
-
-x = torch.randn(10)
-y = torch.rand(5)
-caca = {{x, y}, {x, y}}
---popo = root:forward( {{x, y}, {x, y}} )
-print( caca )
---print( popo )
+use_train_report = true
+if use_train_report then
+	report_csv = csvigo.File( experimentDir .. "/train_report.csv", "w")
+	report_csv:write( {"epoch", "current_loss", "average_reward"} )
+end
 ]]--
 
-x1 = torch.rand(16, 1) -- or x1 = torch.rand(10) for individual inputs
---x1 = torch.rand(16, 10, 1) -- or x1 = torch.rand(10) for individual inputs
-x2 = torch.rand(3, 2) -- or x2 = torch.rand(10) for individual inputs
---x2 = torch.rand(16, 2) -- or x2 = torch.rand(10) for individual inputs
+csvenv.initial_euro = 80
 
-model1 = nn.Sequential()
-model1:add(nn.TemporalConvolution(1,4,5,1))
---model1:add(nn.Reshape(32))
--- model1:add(nn.ReLU())
--- model1:add(nn.TemporalMaxPooling(2))
--- model1:add(nn.ReLU())
--- m = nn.View(-1):setNumInputDims(2)
--- model1:add(m)
+for i=1, max_epochs do
 
--- model1:add(nn.View(28))
+	print( "*** Epoch " .. tostring(i) .. "/" .. tostring(max_epochs) .. " ***" )
+	
+	timer = torch.Timer()
+	local action = a:actOnInput( state )
+	local t = timer:time().real
+	print( "AGENT_actOnInput_t=" .. tostring(t) )
+	
+	timer = torch.Timer()
+	local reward, nextState = csvenv:act( action )
+	local t = timer:time().real
+	print( "ENV_act_t=" .. tostring(t) )
+	
+	timer = torch.Timer()
+	local stepTuple = { state, action, reward, nextState }
+	a:train( stepTuple )
+	local t = timer:time().real
+	print( "AGENT_train_t=" .. tostring(t) )
+	
+	-- prepare next step
+	state = nextState
+	
+	nsteps = nsteps + 1
+	
+	if reward ~= 0 then
+	totReward = totReward + reward
+	avgReward = totReward / nreward
+	nreward = nreward + 1
+	end
+	
+	--if #value >= 100 then
+	--	table.remove( value, 1 )
+	--	table.remove( time, 1 )
+	--end 
 
---model1:add(nn.TemporalConvolution(16,32,5,1))
---model1:add(nn.ReLU())
---model1:add(nn.TemporalMaxPooling(2))
+	if nsteps == a.learning_steps_burnin or csvenv:portfolioValue() < 5 then
+		-- csvenv.current_btc = csvenv.initial_btc
+		-- csvenv.current_euro = csvenv.initial_euro
+	end
+	
+	if nsteps > a.learning_steps_burnin and use_plot then	
+	table.insert( value, avgReward )
+	table.insert( losses, a.currentLoss )
+   	table.insert( time, nsteps )
+   	end
+   	
+   	print( "AVG_Reward: " .. tostring(avgReward ) )
+   		   	print("AVG_TradeProfit: " .. tostring(csvenv.averageProfit))
+   		   	
+   	if a.currentLoss > 100 then
+   	print("#####################SHIT#######################")
+   	--exit()
+   	end
+   	
+   	-- save network from time to time
+   	--[[
+   	if nsteps % 10 == 0 then
+   		local curLoss = a.currentLoss
+   		-- print( prevLoss )
+   		-- print( curLoss )
+   		-- print( tostring( prevLoss - curLoss ) )
+   		if prevLoss - curLoss >= 0.01 then
+   			local netPath = experimentDir .. "/net_" .. tostring(curLoss) .. ".net"
+   			print( netPath )
+   			a:saveNetwork( netPath )
+   			prevLoss = curLoss
+   		end
+   	end
+   	]]--
+   	
+	-- plot reward
+	if use_plot then
+		if nsteps % 500 == 0 and nsteps > a.learning_steps_burnin then
+		cgtime = torch.Tensor(time)
+		cgevaluations = torch.Tensor(value)
+		gnuplot.figure(1)
+		gnuplot.title('Average reward over time')
+		gnuplot.plot(cgtime, cgevaluations)
+		gnuplot.figure(2)
+		gnuplot.title('loss over time')
+		gnuplot.plot(cgtime, torch.Tensor(losses))
+		end
+	end
+	
+	-- release emory from time to time
+	if nsteps % 500 == 0 then
+		collectgarbage()
+	end
+		
+	nsteps = nsteps + 1
+	socket.sleep(0.10)
+	
+end
 
-model2 = nn.Sequential():add(nn.Linear(2, 1)):add(nn.Tanh())
-model3 = nn.Linear(29, 4)
-global = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
-
---pred = global:forward({x1, x2})
-print( "pred1" )
-pred1 = model1:forward(x1)
-print( pred1 )
-print( "pred2" )
-pred2 = model2:forward(x2)
-
-print(pred1)
-print(pred2)
-
-pred = global:forward( {x1, x2} )
-print(pred)
-
---pred = model2:forward(x2)
---print(pred)
---pred = global:forward({x1, x2})
--- print(pred)

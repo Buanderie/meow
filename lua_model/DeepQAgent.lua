@@ -85,8 +85,9 @@ function dqa:initNeuralNet()
 	
 	
 	model1 = nn.Sequential()
-
-	model1:add( nn.TemporalConvolution(1,32,5,1) )
+	
+	--[[
+	model1:add( nn.TemporalConvolution(2,8,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
 	
@@ -94,25 +95,30 @@ function dqa:initNeuralNet()
 	model1:add( nn.Dropout() )
 	end
 	
-	model1:add( nn.TemporalConvolution(32,64,5,1) )
+	model1:add( nn.TemporalConvolution(8,16,5,1) )
 	model1:add( nn.Tanh() )
 	model1:add( nn.TemporalMaxPooling(2) )
-	
+
 	if self.use_thompson then
 	model1:add( nn.Dropout() )
 	end
-
-
+	]]--
+	
 	model1:add( nn.Identity() )
+	model1:add( nn.Contiguous())
 	local m = nn.View(-1):setNumInputDims(2)
     model1:add(m)
     
 	model2 = nn.Sequential():add( nn.Identity() )
 	
-	local size1 = model1:forward( torch.rand( self.stock_input_len, 1 ) ):size()
+	local size1 = model1:forward( torch.rand( self.stock_input_len, 2 ) ):size()
+
 	size1 = size1[#size1]
-	-- print( "size1:" )
-	-- print( size1 )
+	print( "size1:" )
+	print( size1 )
+
+--	exit()
+	
 	local size2 = model2:forward( torch.rand( 3 ) ):size()[1]
 	local inSize = size1 + size2
 	-- print( inSize )
@@ -122,20 +128,20 @@ function dqa:initNeuralNet()
 	model3 = nn.Sequential()
 	model3:add( nn.Linear( inSize, n_hid ) )
 	model3:add( nn.Tanh() )
-	if self.use_thompson then
+		if self.use_thompson then
 		model3:add( nn.Dropout() )
 	end
 	
 	model3:add( nn.Linear( n_hid, n_hid ) )
 	model3:add( nn.Tanh() )
-	if self.use_thompson then
+		if self.use_thompson then
 		model3:add( nn.Dropout() )
 	end
 	
 	model3:add( nn.Linear( n_hid, self.number_of_actions ) )
-	model3:add( nn.Tanh() )
+	model3:add( nn.SoftMax() )
 	if self.use_thompson then
-		model3:add( nn.Dropout() )
+		--model3:add( nn.Dropout() )
 	end
 	
 	self.net = nn.Sequential():add(nn.ParallelTable():add(model1):add(model2)):add(nn.JoinTable(1, 1)):add(model3)
@@ -174,8 +180,9 @@ function dqa:saveNetwork( networkPath )
 	end
 end
 
-function dqa:loadNetwork()
-	self.net = torch.load( 'net.bin' )
+function dqa:loadNetwork(netPath)
+	print("Loading net from: " .. netPath)
+	self.net = torch.load( netPath )
 	self.criterion = nn.MSECriterion()
 	self.parameters, self.gradParameters = self.net:getParameters()
 end
@@ -192,7 +199,7 @@ function dqa:__init(args)
 	self.number_of_actions = 3
 	
 	--- data input
-	self.stock_input_len = 24
+	self.stock_input_len = 48
 
 	--- current number of iteration	
 	self.iter = 0
@@ -221,12 +228,12 @@ function dqa:__init(args)
 	
 	
 	--- Training batch size
-	self.training_batch_size = 250
+	self.training_batch_size = 64
    	self.learning_rate = 0.1
    	self.learning_rate_decay = 5e-7
    	self.momentum = 0.9
-   	self.coefL1 = 0.001
-   	self.coefL2 = 0.001
+   	self.coefL1 = 0
+   	self.coefL2 = 0
    	self.currentLoss = 1
 
 	--- Training
@@ -236,13 +243,13 @@ function dqa:__init(args)
 	--- Gamma 
 	-- gamma is a crucial parameter that controls how much plan-ahead the agent does. In [0,1]
    	-- Determines the amount of weight placed on the utility of the state resulting from an action.
-   	self.gamma = 0.99
+   	self.gamma = 0.9
    	
 	--- neural net
 	--- initialized to random weights if no params
 	if args.agent_net ~= nil then
 		--- load agent neural net
-		self:loadNetwork()
+		self:loadNetwork(args.agent_net)
 	else
 		self:initNeuralNet()	
 	end
@@ -273,6 +280,9 @@ function dqa:actRandom( input )
 end
 
 function dqa:forward( input, net )
+	
+	--print("inpit!")
+	--print(input)
 	
 	if self.gpu then
 		input[1] = input[1]:cuda()
@@ -352,11 +362,11 @@ end
 function dqa:trainFromMemory()
 	
 	if self.gpu then
-		h_inputs = torch.CudaTensor(self.training_batch_size, self.stock_input_len, 1 )
+		h_inputs = torch.CudaTensor(self.training_batch_size, self.stock_input_len, 2 )
 		p_inputs = torch.CudaTensor(self.training_batch_size, 3 )
 		targets = torch.CudaTensor(self.training_batch_size, self.number_of_actions, 1 )
 	else
-		h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 1 )
+		h_inputs = torch.Tensor(self.training_batch_size, self.stock_input_len, 2 )
 		p_inputs = torch.Tensor(self.training_batch_size, 3 )
 		targets = torch.Tensor(self.training_batch_size, self.number_of_actions, 1 )
 	end
@@ -489,9 +499,9 @@ function dqa:trainFromMemory()
         print( "Current loss: " .. tostring(fs[1] ) )
         self.currentLoss = fs[1]
         
-        if self.currentLoss > 10000 then
+        if self.currentLoss > 1000 then
         	self:dumpMiniBatch( inputs, targets ) 
-        	exit()
+        	--exit()
         end
         
         -- sleep(1)
@@ -506,7 +516,9 @@ end
 function dqa:train( stepTuple )
 	
 	--- Insert tuple to memory
-	self:insertToMemory( stepTuple )
+	if self.learn then
+		self:insertToMemory( stepTuple )
+	end
 	
 	--- Train
 	if self.learn and table.length( self.replay_memory ) > self.training_batch_size and self.nsteps >= self.learning_steps_burnin then
@@ -533,6 +545,7 @@ function dqa:actEGreedy( input )
 	  			max_index = i
 	  		end
 	  	end
+	  	--print( input[1] )
 	  	print( x )
 	  	ret = torch.Tensor(1):fill(max_index)
 	else
@@ -540,12 +553,14 @@ function dqa:actEGreedy( input )
 	end
 
 	-- anneal the epsilon a little
-	self.ep = self.ep - 0.0001
+	self.ep = math.max( self.ep - 0.00005, 0.0 )
+	if self.ep <= 0 then self.learn = false end
 	print( "self.ep = " .. tostring(self.ep) )
 	print( "######################## END ###########################")
 		
 	-- return choosen action
 	return ret
+	
 end
 
 function dqa:actThompson( input )
@@ -582,7 +597,7 @@ function dqa:actOnInput( input )
 	
 	local ret = nil
 	
-	if self.nsteps < self.learning_steps_burnin then
+	if self.evaluation_mode == false and self.nsteps < self.learning_steps_burnin then
 		ret = self:actRandom( input )
 	else
 		if self.use_thompson then

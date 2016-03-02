@@ -21,7 +21,7 @@ end
 local a = DeepQAgent{agent_net=netFile}
 
 -- Create an environment
-local csvenv = CSVEnvironment{csv_file="./out.csv"}
+local csvenv = CSVEnvironment{csv_file="./krakenEUR.csv"}
 
 timer = torch.Timer()
 time = {}
@@ -30,6 +30,7 @@ losses = {}
 totReward = 0
 avgReward = 0
 nsteps = 0
+nreward = 1
 
 -- initial state
 local state = csvenv:getNextState()
@@ -81,8 +82,12 @@ for i=1, max_epochs do
 	state = nextState
 	
 	nsteps = nsteps + 1
+	
+	if reward ~= 0 then
 	totReward = totReward + reward
-	avgReward = totReward / nsteps
+	avgReward = totReward / nreward
+	nreward = nreward + 1
+	end
 	
 	--if #value >= 100 then
 	--	table.remove( value, 1 )
@@ -90,8 +95,8 @@ for i=1, max_epochs do
 	--end 
 
 	if nsteps == a.learning_steps_burnin or csvenv:portfolioValue() < 5 then
-		csvenv.current_btc = csvenv.initial_btc
-		csvenv.current_euro = csvenv.initial_euro
+		-- csvenv.current_btc = csvenv.initial_btc
+		-- csvenv.current_euro = csvenv.initial_euro
 	end
 	
 	if nsteps > a.learning_steps_burnin and use_plot then	
@@ -101,9 +106,11 @@ for i=1, max_epochs do
    	end
    	
    	print( "AVG_Reward: " .. tostring(avgReward ) )
-   		
-   	if a.currentLoss > 10 then
+   	print("AVG_TradeProfit: " .. tostring(csvenv.averageProfit))
+   	
+   	if a.currentLoss > 100 then
    	print("#####################SHIT#######################")
+   	--exit()
    	end
    	
    	-- save network from time to time

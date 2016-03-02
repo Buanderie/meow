@@ -26,7 +26,9 @@ function normalizeRows( inp )
   		out[k] = inp[k]
   		if s ~= 0 then 
     		out[k]:add(-m)
-    		out[k]:div(s)
+    		if s ~= 0 then
+    			out[k]:div(s)
+    		end
   		end
   	end
   	
@@ -39,7 +41,7 @@ function csvenv:__init(args)
 	if args.stock_chunk_len ~= nil then
 	self.stock_chunk_len = args.stock_chunk_len
 	else
-	self.stock_chunk_len = 24
+	self.stock_chunk_len = 48
 	end
 
 	--- CSV file we'll be using
@@ -57,6 +59,7 @@ function csvenv:__init(args)
 	end
 
 	--- current value buffer
+		self.aaa = 3
 	self.buffer = {}
 	self.portfolio_buffer = {}
 	self.portfolio_eur = {}
@@ -64,6 +67,9 @@ function csvenv:__init(args)
 	
 	--- Current offset in CSV file
 	self.csv_offset = 1
+	
+	--- Total number of data retrieved
+	self.numIter = 1
 
 	--- last time value encountered in CSV
 	self.last_time_value = 0
@@ -73,18 +79,21 @@ function csvenv:__init(args)
 
 	--- initial portfolio
 	self.initial_btc = 0
-	self.initial_euro = 1000
+	self.initial_euro = 80
 	self.initial_portfolio_value = 0
 	
 	-- current protfolio
-	self.current_btc = 0
-	self.current_euro = 0
+	self.current_btc = self.initial_btc
+	self.current_euro = self.initial_euro
 	
 	--- other portfolio info
 	self.value_at_entry = 0
 	
 	--- current timestamp we're in
 	self.current_timestamp = 0
+	
+	--- Simulated trading fees (in percent)
+	self.fees = 0.3
 	
 	--- current BTC value (in euro?)
 	self.current_btc_val = 0
@@ -94,6 +103,8 @@ function csvenv:__init(args)
 	--- other analytics
 	self.returnHistory = {}
 	self.returnHistoryLength = 5
+	self.averageProfit = 0
+	self.numTrade = 0
 	
 	--- should we use reporting ?
 	self.use_reporting = true --args.use_reporting
@@ -107,6 +118,8 @@ function csvenv:__init(args)
 	
 	-- Init
 	self:reset()
+	
+
 	
 end
 
@@ -151,10 +164,17 @@ end
 
 function csvenv:sell()
 	if self.current_btc > 0 then
+		local prevValue = self.value_at_entry
 		self.current_euro = (self.current_btc * self.current_btc_val)
 		self.current_euro = self.current_euro - self:getFees( self.current_euro )
 		self.current_btc = 0
+		self.value_at_entry = 0
 		-- self.value_at_entry = self.current_btc_val
+		-- Report trade profit
+		local curValue = self.current_euro
+		local profit = (curValue - prevValue)
+		self.numTrade = self.numTrade + 1
+		self.averageProfit = self.averageProfit + (profit - self.averageProfit)/self.numTrade
 	end
 end
 
@@ -172,12 +192,14 @@ function csvenv:reportAction( action )
 end
 
 function csvenv:getFees( value )
-	print( "fees: " .. tostring( (0.3/100) * value ) )
-	return (0.3/100) * value
+	print( "fees: " .. tostring( (self.fees * 0.01) * value ) )
+	return (self.fees * 0.01) * value
 end
 
 -- returns reward AND next state given action
 function csvenv:act( action )
+	
+	self.aaa = action
 	
 	local coucou = ((math.max(self.value_at_entry, 0.0000001) -  self.current_btc_val) /  self.current_btc_val) / 100
 	print("coucou: " .. tostring(coucou ) ) 
@@ -310,7 +332,7 @@ function csvenv:act( action )
 	
 	
 		if compVal > 0 then
-			reward = 1
+			reward = 2
 		elseif compVal < 0 then
 			reward = -1
 		else
@@ -345,22 +367,24 @@ function csvenv:act( action )
 	    if pfReturn >= 0 then
 	        reward = -btcReturn
 	    else
-	        reward = pfReturn
+	     --   reward = pfReturn
 	    end
 	end
 	]]--
 	
-	--[[
+	
+	--OKAY
+	reward = pfReturn
+	reward = 0
 	if action_idx == 1  and not impossible_move then
-		if compVal > 0 then
-			reward = 100 * compVal
-		elseif compVal < 0 then
-			reward = -100 * compVal
+		if curRet > 0 then
+			reward = reward  + 1
+		elseif curRet < 0 then
+			reward = reward - 1
 		else
-			reward = 0
+			reward = reward + 0
 		end
 	end
-	]]--
 	
 	--[[
 	if reward < 0 then
@@ -404,7 +428,7 @@ function csvenv:act( action )
 	
 	-- Penalty for doing shit
 	if impossible_move then
-	 	-- reward = reward - 0.1
+	 	-- reward = reward - 1
 	end
 	--
 	
@@ -435,8 +459,8 @@ function csvenv:getPortfolioState()
 	--else
 	---	curReturn = 1
 	--end
-	ret[1][3] = curReturn
-	-- ret[1][3] = 0
+	-- ret[1][3] = curReturn
+	ret[1][3] = 0
 	return ret:reshape(3)
 end
 
@@ -471,7 +495,10 @@ function csvenv:reset()
 	self.current_btc = self.initial_btc
 	self.current_euro = self.initial_euro
 	
-	for i,v in ipairs(self.buffer) do table.remove(self.buffer, i) end
+	for i,v in ipairs(self.buffer) do
+	table.remove(self.buffer, i)
+	table.remove(self.portfolio_buffer, i)
+	end
 	popo = nil
 	while popo == nil do
 		popo = self:getNextValue()
@@ -488,6 +515,9 @@ function csvenv:getNextValue()
 		self:reset()
 		currow = self.csv[ self.csv_offset ]
 	end
+	
+	--print("currow ")
+	--print(currow)
 	
 	local timeval = tonumber(currow[ 1 ])
 	while timeval - self.last_time_value < self.time_interval do
@@ -521,18 +551,27 @@ function csvenv:getNextState()
 	while #self.buffer < self.stock_chunk_len do
 		local val = self:getNextValue()
 		local pf  = self:portfolioValue()
-		local rval = 0
+		--[[
+		local curValue =  self.current_euro
+		local prevValue = self.value_at_entry
+		local curRet = (curValue - prevValue)/prevValue
+		if self.value_at_entry == 0 then
+			curRet = 0
+		end
 		if val > 0 then
 			rval = (val-prevValue)/val
 		end
+		]]--
 		table.insert( self.buffer, val )
 		table.insert( self.portfolio_buffer, pf )
-		prevValue = val
 	end
-	
-	local normalizedHistory = ( torch.Tensor( {self.buffer} ) )
+		
+	--print( self.buffer )	
+	--print( self.portfolio_buffer )
+	local normalizedHistory = ( torch.Tensor( {self.buffer, self.buffer} ) )
 	normalizedHistory = normalizeRows( normalizedHistory )
 
+	
 	local ret = nil
 	if self.gpu then
 		ret = {normalizedHistory:transpose(1,2):cuda(), self:getPortfolioState():cuda() }
